@@ -16,17 +16,14 @@
         navigator.serviceWorker.register('./sw.js').then((registration) => {
           console.log('[ApisApp] Service Worker registrado. Verificando atualizações...');
 
-          // Verificação imediata ao abrir o aplicativo
           registration.update();
 
-          // Verificar atualizações quando a tela do celular for reativada (foco)
           document.addEventListener('visibilitychange', () => {
             if (document.visibilityState === 'visible') {
               registration.update();
             }
           });
 
-          // Detectar quando uma nova versão for encontrada
           registration.addEventListener('updatefound', () => {
             const newWorker = registration.installing;
             console.log('[ApisApp] Nova versão encontrada, baixando...');
@@ -40,7 +37,6 @@
           });
         }).catch(err => console.log('Erro ao registrar Service Worker:', err));
 
-        // Recarregar automaticamente quando a nova versão assumir o controle
         let refreshing = false;
         navigator.serviceWorker.addEventListener('controllerchange', () => {
           if (!refreshing) {
@@ -86,6 +82,11 @@
         <li class="nav-item">
           <button data-tab="apiaries" id="nav-btn-apiaries">
             🏞️ Apiários & Colmeias
+          </button>
+        </li>
+        <li class="nav-item">
+          <button data-tab="queens" id="nav-btn-queens">
+            👑 Rainhas & Cores
           </button>
         </li>
         <li class="nav-item">

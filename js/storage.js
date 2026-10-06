@@ -1,6 +1,6 @@
 /**
  * ApisApp - Sistema de Gestão para Apicultura (Abelhas Apis mellifera)
- * Módulo de Armazenamento Local, Backup Diário Automático e Integração Google Drive / E-mail
+ * Módulo de Armazenamento Local - Gestão e Personalização de Rainhas e Cores
  */
 
 const STORAGE_KEYS = {
@@ -10,8 +10,17 @@ const STORAGE_KEYS = {
   HARVESTS: 'apisapp_harvests',
   SETTINGS: 'apisapp_settings',
   LAST_BACKUP_DATE: 'apisapp_last_backup_date',
-  BACKUPS_HISTORY: 'apisapp_backups_history'
+  BACKUPS_HISTORY: 'apisapp_backups_history',
+  QUEEN_COLORS: 'apisapp_queen_colors'
 };
+
+const DEFAULT_QUEEN_COLOR_CODES = [
+  { years: [2021, 2026, 2031], color: '#FFFFFF', textColor: '#0F172A', label: 'Branco (Anos 1 e 6)' },
+  { years: [2022, 2027, 2032], color: '#FACC15', textColor: '#0F172A', label: 'Amarelo (Anos 2 e 7)' },
+  { years: [2023, 2028, 2033], color: '#EF4444', textColor: '#FFFFFF', label: 'Vermelho (Anos 3 e 8)' },
+  { years: [2024, 2029, 2034], color: '#10B981', textColor: '#FFFFFF', label: 'Verde (Anos 4 e 9)' },
+  { years: [2025, 2030, 2035], color: '#3B82F6', textColor: '#FFFFFF', label: 'Azul (Anos 5 e 0)' }
+];
 
 const EMPTY_DATA = {
   apiaries: [],
@@ -25,7 +34,9 @@ export const ApisStorage = {
     if (!localStorage.getItem(STORAGE_KEYS.APIARIES)) {
       this.clearAll();
     }
-    // Verificar e executar backup diário automático se necessário
+    if (!localStorage.getItem(STORAGE_KEYS.QUEEN_COLORS)) {
+      localStorage.setItem(STORAGE_KEYS.QUEEN_COLORS, JSON.stringify(DEFAULT_QUEEN_COLOR_CODES));
+    }
     this.checkAutoBackup();
   },
 
@@ -51,7 +62,24 @@ export const ApisStorage = {
   },
 
   // --------------------------------------------------------------------------
-  // BACKUP DIÁRIO AUTOMÁTICO & ENVIO PARA GOOGLE DRIVE / E-MAIL
+  // GESTÃO E PERSONALIZAÇÃO DE CORES DE RAINHAS
+  // --------------------------------------------------------------------------
+
+  getQueenColorCodes() {
+    return JSON.parse(localStorage.getItem(STORAGE_KEYS.QUEEN_COLORS) || JSON.stringify(DEFAULT_QUEEN_COLOR_CODES));
+  },
+
+  saveQueenColorCodes(colorCodes) {
+    localStorage.setItem(STORAGE_KEYS.QUEEN_COLORS, JSON.stringify(colorCodes));
+  },
+
+  resetQueenColorCodes() {
+    localStorage.setItem(STORAGE_KEYS.QUEEN_COLORS, JSON.stringify(DEFAULT_QUEEN_COLOR_CODES));
+    return DEFAULT_QUEEN_COLOR_CODES;
+  },
+
+  // --------------------------------------------------------------------------
+  // BACKUP DIÁRIO AUTOMÁTICO & GOOGLE DRIVE
   // --------------------------------------------------------------------------
 
   getLastBackupDate() {
@@ -62,9 +90,6 @@ export const ApisStorage = {
     return JSON.parse(localStorage.getItem(STORAGE_KEYS.BACKUPS_HISTORY) || '[]');
   },
 
-  /**
-   * Verifica se o backup de hoje já foi feito. Se não, gera automaticamente um snapshot.
-   */
   checkAutoBackup() {
     const today = new Date().toISOString().split('T')[0];
     const lastBackup = this.getLastBackupDate();
@@ -86,21 +111,15 @@ export const ApisStorage = {
       data: data
     };
 
-    // Guardar histórico (máximo 30 backups diários)
     history.unshift(snapshot);
     if (history.length > 30) history.pop();
 
     localStorage.setItem(STORAGE_KEYS.BACKUPS_HISTORY, JSON.stringify(history));
     localStorage.setItem(STORAGE_KEYS.LAST_BACKUP_DATE, snapshot.date);
 
-    console.log(`[ApisApp] Backup diário automático realizado com sucesso para a data: ${snapshot.date}`);
     return snapshot;
   },
 
-  /**
-   * Envia o arquivo de Backup diretamente para o Google Drive, Gmail ou E-mail da conta do celular.
-   * Utiliza a Web Share API nativa do Android/iOS.
-   */
   async shareToDriveOrEmail() {
     const data = this.getAll();
     const today = new Date().toISOString().split('T')[0];
@@ -124,7 +143,6 @@ export const ApisStorage = {
       }
     }
 
-    // Fallback se não suportar Web Share API: Download automático
     this.exportJSON();
     return { success: true, method: 'download' };
   },
@@ -176,6 +194,17 @@ export const ApisStorage = {
     }
     localStorage.setItem(STORAGE_KEYS.HIVES, JSON.stringify(list));
     return hive;
+  },
+
+  saveHiveQueen(hiveId, queenData) {
+    const hives = this.getHives();
+    const hive = hives.find(h => h.id === hiveId);
+    if (hive) {
+      hive.queen = { ...hive.queen, ...queenData };
+      localStorage.setItem(STORAGE_KEYS.HIVES, JSON.stringify(hives));
+      return hive;
+    }
+    return null;
   },
 
   deleteHive(id) {
@@ -262,23 +291,15 @@ export const ApisStorage = {
   }
 };
 
-// Código oficial internacional de cores de marcação de Rainhas Apis mellifera
-export const QUEEN_COLOR_CODES = [
-  { years: [2021, 2026, 2031], color: '#FFFFFF', textColor: '#0F172A', label: 'Branco (Anos 1 e 6)' },
-  { years: [2022, 2027, 2032], color: '#FACC15', textColor: '#0F172A', label: 'Amarelo (Anos 2 e 7)' },
-  { years: [2023, 2028, 2033], color: '#EF4444', textColor: '#FFFFFF', label: 'Vermelho (Anos 3 e 8)' },
-  { years: [2024, 2029, 2034], color: '#10B981', textColor: '#FFFFFF', label: 'Verde (Anos 4 e 9)' },
-  { years: [2025, 2030, 2035], color: '#3B82F6', textColor: '#FFFFFF', label: 'Azul (Anos 5 e 0)' }
-];
-
 export function getQueenColorForYear(year) {
+  const codes = ApisStorage.getQueenColorCodes();
   const y = parseInt(year, 10);
-  if (isNaN(y)) return QUEEN_COLOR_CODES[0];
+  if (isNaN(y)) return codes[0];
   const lastDigit = y % 10;
-  if (lastDigit === 1 || lastDigit === 6) return QUEEN_COLOR_CODES[0];
-  if (lastDigit === 2 || lastDigit === 7) return QUEEN_COLOR_CODES[1];
-  if (lastDigit === 3 || lastDigit === 8) return QUEEN_COLOR_CODES[2];
-  if (lastDigit === 4 || lastDigit === 9) return QUEEN_COLOR_CODES[3];
-  if (lastDigit === 5 || lastDigit === 0) return QUEEN_COLOR_CODES[4];
-  return QUEEN_COLOR_CODES[0];
+  if (lastDigit === 1 || lastDigit === 6) return codes[0]; // Branco
+  if (lastDigit === 2 || lastDigit === 7) return codes[1]; // Amarelo
+  if (lastDigit === 3 || lastDigit === 8) return codes[2]; // Vermelho
+  if (lastDigit === 4 || lastDigit === 9) return codes[3]; // Verde
+  if (lastDigit === 5 || lastDigit === 0) return codes[4]; // Azul
+  return codes[0];
 }

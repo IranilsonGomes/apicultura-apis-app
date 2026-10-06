@@ -1,6 +1,6 @@
 /**
  * ApisApp - Lógica da Aplicação Principal
- * Gestão Integrada de Apicultura (Apis mellifera) - Com Backup Diário Automático & Google Drive
+ * Gestão Integrada de Apicultura (Apis mellifera) - Edição de Rainhas & Cores
  */
 
 import { ApisStorage, QUEEN_COLOR_CODES, getQueenColorForYear } from './storage.js';
@@ -38,7 +38,6 @@ function setupNavigation() {
 
 // Configuração dos Event Listeners globais
 function setupEventListeners() {
-  // Modal Backdrop
   const modalBackdrop = document.getElementById('modal-backdrop');
   if (modalBackdrop) {
     modalBackdrop.addEventListener('click', (e) => {
@@ -48,7 +47,6 @@ function setupEventListeners() {
     });
   }
 
-  // Botões de Backup no Cabeçalho
   document.getElementById('btn-cloud-drive')?.addEventListener('click', () => {
     openBackupModal();
   });
@@ -84,7 +82,6 @@ function setupEventListeners() {
     });
   }
 
-  // Banner superior de backup
   document.getElementById('btn-banner-share')?.addEventListener('click', async () => {
     await ApisStorage.shareToDriveOrEmail();
   });
@@ -95,7 +92,6 @@ function setupEventListeners() {
   });
 }
 
-// Ouvir alterações de Conexão à Internet (Online / Offline)
 function setupNetworkListeners() {
   window.addEventListener('online', () => {
     console.log('[ApisApp] Dispositivo conectado à internet. Verificando backup diário...');
@@ -104,7 +100,6 @@ function setupNetworkListeners() {
   });
 }
 
-// Exibir banner de notificação de backup diário se necessário
 function checkAutoBackupBanner() {
   const lastBackup = ApisStorage.getLastBackupDate();
   const today = new Date().toISOString().split('T')[0];
@@ -137,6 +132,11 @@ function renderApp() {
       bindApiariesEvents(data);
       break;
 
+    case 'queens':
+      mainContent.innerHTML = renderQueensView(data);
+      bindQueensEvents(data);
+      break;
+
     case 'inspections':
       mainContent.innerHTML = renderInspectionsView(data);
       bindInspectionsEvents(data);
@@ -166,110 +166,275 @@ function renderApp() {
 }
 
 /* ==========================================================================
-   MODAL DE BACKUP E GOOGLE DRIVE
+   QUEENS & COLORS VIEW (Gestão & Edição de Rainhas e Cores)
    ========================================================================== */
-function openBackupModal() {
-  const isOnline = navigator.onLine;
-  const lastBackup = ApisStorage.getLastBackupDate() || 'Nenhum realizado ainda';
-  const history = ApisStorage.getBackupsHistory();
+function renderQueensView(data) {
+  const colorCodes = ApisStorage.getQueenColorCodes();
 
-  const html = `
-    <div style="display:flex; flex-direction:column; gap:1.25rem;">
-      <!-- Status da Conexão & Auto-Backup -->
-      <div style="background:rgba(15,23,42,0.8); padding:1.25rem; border-radius:12px; border:1px solid var(--slate-700);">
-        <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:0.75rem;">
-          <strong style="color:var(--honey-400); font-size:1.1rem;">☁️ Status do Backup Automático</strong>
-          <span class="tag-badge" style="background:${isOnline ? 'rgba(16,185,129,0.2)' : 'rgba(239,68,68,0.2)'}; color:${isOnline ? 'var(--emerald-500)' : 'var(--rose-500)'}">
-            ${isOnline ? '🟢 Conectado à Internet' : '🔴 Offline'}
-          </span>
+  return `
+    <div class="glass-panel">
+      <div class="section-header">
+        <div>
+          <h2 class="section-title">👑 Gestão & Edição de Rainhas</h2>
+          <p style="color:var(--slate-400); font-size:0.9rem;">Controle individual da postura, origem e personalização das cores de marcação no tórax.</p>
         </div>
-        <p style="font-size:0.85rem; color:var(--slate-200); margin-bottom:1rem;">
-          O <strong>ApisApp Pro</strong> executa um backup automático 1 vez por dia na memória do celular. Quando houver conexão à internet, você pode salvar o arquivo diretamente no <strong>Google Drive</strong> ou <strong>E-mail</strong> da sua conta com 1 toque.
-        </p>
-        <div style="font-size:0.8rem; color:var(--slate-400); margin-bottom:1rem;">
-          📅 <strong>Último Backup Diário:</strong> ${lastBackup}
-        </div>
+        <button class="btn btn-secondary" id="btn-customize-colors">
+          ⚙️ Personalizar Tabela de Cores
+        </button>
+      </div>
 
-        <div style="display:flex; gap:0.75rem; flex-wrap:wrap;">
-          <button class="btn btn-primary" id="btn-share-drive" style="flex:1;">
-            ☁️ Enviar para o Google Drive / E-mail
-          </button>
-          <button class="btn btn-secondary" id="btn-force-backup">
-            ⚡ Forçar Backup Agora
-          </button>
+      <!-- Legenda Oficial das Cores de Rainhas -->
+      <div style="background:rgba(15,23,42,0.6); padding:1.25rem; border-radius:var(--radius-lg); border:1px solid var(--slate-700); margin-bottom:1.5rem;">
+        <h3 style="font-size:1rem; color:var(--honey-400); margin-bottom:0.75rem;">🎨 Tabela de Marcação por Ano de Nascimento</h3>
+        <div style="display:grid; grid-template-columns: repeat(auto-fit, minmax(180px, 1fr)); gap:0.75rem;">
+          ${colorCodes.map(qc => `
+            <div style="background:${qc.color}; color:${qc.textColor}; padding:0.6rem 0.8rem; border-radius:10px; font-weight:700; font-size:0.8rem; text-align:center; box-shadow:0 4px 10px rgba(0,0,0,0.3); border:1px solid rgba(255,255,255,0.2);">
+              ${qc.label}
+            </div>
+          `).join('')}
         </div>
       </div>
 
-      <!-- Histórico dos Backups Diários Salvos -->
-      <div>
-        <h4 style="color:var(--honey-400); font-size:1rem; margin-bottom:0.75rem;">📜 Histórico de Backups Diários Salvos (Últimos 30 dias)</h4>
-        <div class="table-responsive" style="max-height:220px; overflow-y:auto;">
-          ${history.length === 0 ? `
-            <div style="text-align:center; padding:1.5rem; color:var(--slate-400); font-size:0.85rem;">
-              Nenhum histórico de backup gravado ainda.
-            </div>
-          ` : `
-            <table class="data-table">
-              <thead>
-                <tr>
-                  <th>Data</th>
-                  <th>Resumo dos Dados</th>
-                  <th>Ações</th>
-                </tr>
-              </thead>
-              <tbody>
-                ${history.map(snap => `
+      <!-- Tabela / Cards de Rainhas Cadastradas -->
+      <div class="table-responsive">
+        ${data.hives.length === 0 ? `
+          <div style="text-align:center; padding:3rem; color:var(--slate-400);">
+            <div style="font-size:2.5rem; margin-bottom:0.5rem;">👑</div>
+            <strong style="color:#fff;">Nenhuma colmeia ou rainha cadastrada ainda.</strong>
+            <p style="font-size:0.85rem; margin-top:0.25rem;">Cadastre uma colmeia para gerenciar sua rainha!</p>
+          </div>
+        ` : `
+          <table class="data-table">
+            <thead>
+              <tr>
+                <th>Colmeia / Apiário</th>
+                <th>Ano & Cor da Rainha</th>
+                <th>Marcação</th>
+                <th>Linhagem / Origem</th>
+                <th>Qualidade da Postura</th>
+                <th>Idade (Meses)</th>
+                <th>Ações</th>
+              </tr>
+            </thead>
+            <tbody>
+              ${data.hives.map(hive => {
+                const apiary = data.apiaries.find(a => a.id === hive.apiaryId);
+                const q = hive.queen || {};
+                const qColor = getQueenColorForYear(q.year || 2026);
+                const activeColor = q.color || qColor.color;
+                const activeText = qColor.textColor;
+
+                return `
                   <tr>
-                    <td><strong>${snap.date}</strong></td>
-                    <td style="font-size:0.8rem;">${snap.summary}</td>
                     <td>
-                      <div style="display:flex; gap:0.4rem;">
-                        <button class="btn btn-secondary btn-restore-snap" data-id="${snap.id}" style="padding:0.25rem 0.5rem; font-size:0.75rem;" title="Restaurar este backup">
-                          🔄 Restaurar
-                        </button>
-                      </div>
+                      <strong>${hive.code}</strong> (${hive.name})<br>
+                      <small style="color:var(--honey-400);">${apiary ? apiary.name : 'Sem Apiário'}</small>
+                    </td>
+                    <td>
+                      <span class="queen-badge" style="background:${activeColor}; color:${activeText}; padding:0.35rem 0.75rem; border-radius:16px;">
+                        👑 ${q.year || 2026}
+                      </span>
+                    </td>
+                    <td>
+                      ${q.marked !== false 
+                        ? '<span style="color:var(--emerald-500); font-weight:700;">✅ Marcada no Tórax</span>' 
+                        : '<span style="color:var(--rose-500); font-weight:700;">❌ Sem Marcação</span>'}
+                    </td>
+                    <td><strong>${q.origin || 'Matriz Selecionada'}</strong></td>
+                    <td>
+                      <span class="tag-badge" style="background:rgba(245,158,11,0.15); color:var(--honey-400);">
+                        ${q.postureStatus || 'Boa postura'}
+                      </span>
+                    </td>
+                    <td>${q.ageMonths || 6} meses</td>
+                    <td>
+                      <button class="btn btn-primary btn-edit-queen" data-id="${hive.id}" style="padding:0.35rem 0.75rem; font-size:0.8rem;">
+                        ✏️ Editar Rainha
+                      </button>
                     </td>
                   </tr>
-                `).join('')}
-              </tbody>
-            </table>
-          `}
-        </div>
+                `;
+              }).join('')}
+            </tbody>
+          </table>
+        `}
       </div>
     </div>
   `;
+}
 
-  openModal('☁️ Backup Diário & Google Drive', html);
-
-  document.getElementById('btn-share-drive')?.addEventListener('click', async () => {
-    const result = await ApisStorage.shareToDriveOrEmail();
-    if (result && result.success) {
-      if (result.method === 'download') {
-        alert('O arquivo de backup foi baixado! Você pode anexá-lo ao seu Google Drive ou enviá-lo por E-mail.');
-      }
-    }
+function bindQueensEvents(data) {
+  document.getElementById('btn-customize-colors')?.addEventListener('click', () => {
+    openCustomizeColorsModal();
   });
 
-  document.getElementById('btn-force-backup')?.addEventListener('click', () => {
-    const today = new Date().toISOString().split('T')[0];
-    ApisStorage.performAutoBackup(today);
-    alert('Backup diário gerado com sucesso!');
-    closeModal();
-    openBackupModal();
-  });
-
-  document.querySelectorAll('.btn-restore-snap').forEach(btn => {
+  document.querySelectorAll('.btn-edit-queen').forEach(btn => {
     btn.addEventListener('click', () => {
-      const snapId = btn.getAttribute('data-id');
-      const history = ApisStorage.getBackupsHistory();
-      const snap = history.find(s => s.id === snapId);
-      if (snap && confirm(`Tem certeza que deseja restaurar o backup do dia ${snap.date}? Os dados atuais serão substituídos.`)) {
-        ApisStorage.saveAll(snap.data);
-        alert('Dados restaurados com sucesso!');
-        closeModal();
-        renderApp();
-      }
+      const hiveId = btn.getAttribute('data-id');
+      const hive = data.hives.find(h => h.id === hiveId);
+      if (hive) openEditQueenModal(hive);
     });
+  });
+}
+
+// Modal para Editar Dados da Rainha
+function openEditQueenModal(hive) {
+  const q = hive.queen || {};
+  const html = `
+    <form id="form-edit-queen" class="form-grid">
+      <div class="form-group">
+        <label>Colmeia:</label>
+        <input type="text" class="form-control" value="${hive.code} - ${hive.name}" disabled style="opacity:0.7;">
+      </div>
+
+      <div class="form-group">
+        <label>Ano de Nascimento da Rainha:</label>
+        <select id="eq-year" class="form-control">
+          <option value="2026" ${q.year == 2026 ? 'selected' : ''}>2026 (Branco)</option>
+          <option value="2025" ${q.year == 2025 ? 'selected' : ''}>2025 (Azul)</option>
+          <option value="2024" ${q.year == 2024 ? 'selected' : ''}>2024 (Verde)</option>
+          <option value="2023" ${q.year == 2023 ? 'selected' : ''}>2023 (Vermelho)</option>
+          <option value="2022" ${q.year == 2022 ? 'selected' : ''}>2022 (Amarelo)</option>
+          <option value="2021" ${q.year == 2021 ? 'selected' : ''}>2021 (Branco)</option>
+        </select>
+      </div>
+
+      <div class="form-group">
+        <label>Cor de Marcação (Personalizada):</label>
+        <div style="display:flex; gap:0.5rem; align-items:center;">
+          <input type="color" id="eq-color-picker" value="${q.color || '#FFFFFF'}" style="width:45px; height:38px; border:none; border-radius:6px; cursor:pointer;">
+          <input type="text" id="eq-color-hex" class="form-control" value="${q.color || '#FFFFFF'}" placeholder="#FFFFFF" style="flex:1;">
+        </div>
+      </div>
+
+      <div class="form-group">
+        <label>Status da Marcação:</label>
+        <select id="eq-marked" class="form-control">
+          <option value="true" ${q.marked !== false ? 'selected' : ''}>Marcada no Tórax</option>
+          <option value="false" ${q.marked === false ? 'selected' : ''}>Não Marcada</option>
+        </select>
+      </div>
+
+      <div class="form-group">
+        <label>Origem / Linhagem:</label>
+        <input type="text" id="eq-origin" class="form-control" value="${q.origin || 'Matriz Selecionada'}" placeholder="Ex: Matriz Selecionada Cárnica x Africanizada">
+      </div>
+
+      <div class="form-group">
+        <label>Qualidade da Postura:</label>
+        <select id="eq-posture" class="form-control">
+          <option value="Excelente (Cria uniforme de canto a canto)" ${q.postureStatus && q.postureStatus.includes('Excelente') ? 'selected' : ''}>Excelente (Cria uniforme de canto a canto)</option>
+          <option value="Boa postura" ${q.postureStatus && q.postureStatus.includes('Boa') ? 'selected' : ''}>Boa postura</option>
+          <option value="Regular" ${q.postureStatus && q.postureStatus.includes('Regular') ? 'selected' : ''}>Regular</option>
+          <option value="Falhada / Postura Irregular" ${q.postureStatus && q.postureStatus.includes('Falhada') ? 'selected' : ''}>Falhada / Postura Irregular (Troca recomendada)</option>
+          <option value="Ausente / Sem Rainha" ${q.postureStatus && q.postureStatus.includes('Ausente') ? 'selected' : ''}>Ausente / Sem Rainha</option>
+        </select>
+      </div>
+
+      <div class="form-group">
+        <label>Idade Estimada (Meses):</label>
+        <input type="number" id="eq-age" class="form-control" min="1" max="48" value="${q.ageMonths || 6}">
+      </div>
+
+      <div style="grid-column: 1 / -1; display:flex; justify-content:flex-end; gap:0.75rem; margin-top:1rem;">
+        <button type="button" class="btn btn-secondary" onclick="document.getElementById('modal-backdrop').classList.remove('active')">Cancelar</button>
+        <button type="submit" class="btn btn-primary">Salvar Alterações da Rainha</button>
+      </div>
+    </form>
+  `;
+
+  openModal(`👑 Editar Rainha - Colmeia ${hive.code}`, html);
+
+  const colorPicker = document.getElementById('eq-color-picker');
+  const colorHex = document.getElementById('eq-color-hex');
+  if (colorPicker && colorHex) {
+    colorPicker.addEventListener('input', (e) => colorHex.value = e.target.value.toUpperCase());
+    colorHex.addEventListener('input', (e) => colorPicker.value = e.target.value);
+  }
+
+  document.getElementById('form-edit-queen').addEventListener('submit', (e) => {
+    e.preventDefault();
+    const year = parseInt(document.getElementById('eq-year').value, 10);
+    const color = document.getElementById('eq-color-hex').value;
+
+    const queenData = {
+      year: year,
+      color: color,
+      marked: document.getElementById('eq-marked').value === 'true',
+      origin: document.getElementById('eq-origin').value,
+      postureStatus: document.getElementById('eq-posture').value,
+      ageMonths: parseInt(document.getElementById('eq-age').value, 10) || 6
+    };
+
+    ApisStorage.saveHiveQueen(hive.id, queenData);
+    closeModal();
+    renderApp();
+  });
+}
+
+// Modal para Personalizar Tabela de Cores
+function openCustomizeColorsModal() {
+  const currentCodes = ApisStorage.getQueenColorCodes();
+
+  const html = `
+    <form id="form-customize-colors">
+      <p style="font-size:0.85rem; color:var(--slate-400); margin-bottom:1rem;">
+        Personalize as cores de marcação de rainha para cada dígito final do ano de nascimento:
+      </p>
+
+      <div style="display:flex; flex-direction:column; gap:0.75rem; margin-bottom:1.5rem;">
+        ${currentCodes.map((c, idx) => `
+          <div style="display:flex; align-items:center; gap:0.75rem; background:rgba(15,23,42,0.7); padding:0.6rem; border-radius:8px; border:1px solid var(--slate-700);">
+            <strong style="width:140px; font-size:0.85rem;">${c.label}</strong>
+            <input type="color" class="color-picker-item" data-idx="${idx}" value="${c.color}" style="width:40px; height:35px; border:none; border-radius:6px; cursor:pointer;">
+            <input type="text" class="color-hex-item form-control" data-idx="${idx}" value="${c.color}" style="width:100px; padding:0.4rem;">
+          </div>
+        `).join('')}
+      </div>
+
+      <div style="display:flex; justify-content:space-between; align-items:center;">
+        <button type="button" class="btn btn-secondary" id="btn-reset-colors">Restaurar Padrão Internacional</button>
+        <div style="display:flex; gap:0.5rem;">
+          <button type="button" class="btn btn-secondary" onclick="document.getElementById('modal-backdrop').classList.remove('active')">Cancelar</button>
+          <button type="submit" class="btn btn-primary">Salvar Cores</button>
+        </div>
+      </div>
+    </form>
+  `;
+
+  openModal('🎨 Personalizar Tabela de Cores de Rainhas', html);
+
+  document.querySelectorAll('.color-picker-item').forEach(picker => {
+    picker.addEventListener('input', (e) => {
+      const idx = picker.getAttribute('data-idx');
+      const hexInput = document.querySelector(`.color-hex-item[data-idx="${idx}"]`);
+      if (hexInput) hexInput.value = e.target.value.toUpperCase();
+    });
+  });
+
+  document.querySelectorAll('.color-hex-item').forEach(hex => {
+    hex.addEventListener('input', (e) => {
+      const idx = hex.getAttribute('data-idx');
+      const pickerInput = document.querySelector(`.color-picker-item[data-idx="${idx}"]`);
+      if (pickerInput) pickerInput.value = e.target.value;
+    });
+  });
+
+  document.getElementById('btn-reset-colors')?.addEventListener('click', () => {
+    ApisStorage.resetQueenColorCodes();
+    closeModal();
+    renderApp();
+  });
+
+  document.getElementById('form-customize-colors').addEventListener('submit', (e) => {
+    e.preventDefault();
+    const updatedCodes = currentCodes.map((c, idx) => {
+      const hexVal = document.querySelector(`.color-hex-item[data-idx="${idx}"]`).value;
+      return { ...c, color: hexVal };
+    });
+    ApisStorage.saveQueenColorCodes(updatedCodes);
+    closeModal();
+    renderApp();
   });
 }
 
@@ -303,7 +468,7 @@ function renderDashboardView(data) {
         <p>Acompanhamento preciso de colmeias de abelhas <em>Apis mellifera</em>, sanidade, postura de rainhas e colheitas de mel e própolis com controle de lotes.</p>
         <div class="hero-tags">
           <span class="tag-badge">🐝 Abelhas Apis</span>
-          <span class="tag-badge">🍯 Rastreabilidade de Lotes</span>
+          <span class="tag-badge">👑 Gestão & Cores de Rainhas</span>
           <span class="tag-badge">☁️ Backup Diário no Drive</span>
           <span class="tag-badge">📊 Saúde do Apiário: ${avgHealth}%</span>
         </div>
@@ -394,7 +559,7 @@ function renderDashboardView(data) {
                       <td><strong>${h.code}</strong> (${h.name})</td>
                       <td>${ap ? ap.name : 'Sem Apiário'}</td>
                       <td>
-                        <span class="queen-badge" style="background:${qColor.color}; color:${qColor.textColor};">
+                        <span class="queen-badge" style="background:${h.queen.color || qColor.color}; color:${qColor.textColor};">
                           👑 ${h.queen.year}
                         </span>
                       </td>
@@ -424,16 +589,16 @@ function renderDashboardView(data) {
         
         <div style="display:flex; flex-direction:column; gap:1rem;">
           <div style="background:rgba(245,158,11,0.1); border-left:4px solid var(--honey-400); padding:0.85rem; border-radius:8px;">
-            <strong style="color:var(--honey-400); font-size:0.85rem;">☁️ BACKUP DIÁRIO ATIVO</strong>
+            <strong style="color:var(--honey-400); font-size:0.85rem;">👑 EDIÇÃO DE RAINHAS E CORES</strong>
             <p style="font-size:0.8rem; color:var(--slate-200); margin-top:0.25rem;">
-              O sistema salva automaticamente 1 backup por dia. Quando tiver internet, clique em <strong>"Backup & Drive"</strong> para enviar ao seu Google Drive ou E-mail.
+              Agora você pode alterar o ano, linhagem e personalizar a cor de marcação de cada rainha na aba <strong>Rainhas & Cores</strong>!
             </p>
           </div>
 
           <div style="background:rgba(16,185,129,0.1); border-left:4px solid var(--emerald-500); padding:0.85rem; border-radius:8px;">
-            <strong style="color:var(--emerald-500); font-size:0.85rem;">👑 CÓDIGO INTERNACIONAL DE RAINHAS</strong>
+            <strong style="color:var(--emerald-500); font-size:0.85rem;">☁️ BACKUP AUTOMÁTICO NO DRIVE</strong>
             <p style="font-size:0.8rem; color:var(--slate-200); margin-top:0.25rem;">
-              Ao cadastrar uma colmeia, o ano da rainha definirá automaticamente a cor oficial no sistema!
+              O sistema salva automaticamente seus dados todos os dias. Ao ficar online, envie para seu Google Drive com 1 toque.
             </p>
           </div>
         </div>
@@ -480,7 +645,6 @@ function renderApiariesView(data) {
         </div>
       </div>
 
-      <!-- Lista de Apiários Cadastrados -->
       ${data.apiaries.length > 0 ? `
         <div style="margin-bottom:1.5rem; display:grid; grid-template-columns: repeat(auto-fill, minmax(260px, 1fr)); gap:1rem;">
           ${data.apiaries.map(ap => {
@@ -501,7 +665,6 @@ function renderApiariesView(data) {
         </div>
       ` : ''}
 
-      <!-- Filtros -->
       <div style="display:flex; gap:1rem; margin-bottom:1.5rem; flex-wrap:wrap; background:rgba(15,23,42,0.5); padding:1rem; border-radius:12px;">
         <div class="form-group" style="margin:0; min-width:200px;">
           <label>Filtrar por Apiário:</label>
@@ -521,7 +684,6 @@ function renderApiariesView(data) {
         </div>
       </div>
 
-      <!-- Cards de Colmeias -->
       <div class="hives-grid">
         ${filteredHives.length === 0 ? `
           <div style="grid-column: 1 / -1; text-align:center; padding:3rem; color:var(--slate-400);">
@@ -547,18 +709,16 @@ function renderApiariesView(data) {
                 Modelo: ${hive.type} | Origem: ${hive.origin}
               </div>
 
-              <!-- Informações da Rainha -->
               <div style="background:rgba(30,41,59,0.7); padding:0.6rem 0.8rem; border-radius:8px; margin-bottom:0.75rem; display:flex; align-items:center; justify-content:space-between;">
                 <div>
                   <div style="font-size:0.75rem; color:var(--slate-400);">Linhagem da Rainha</div>
                   <div style="font-size:0.8rem; font-weight:600;">${hive.queen.origin}</div>
                 </div>
-                <span class="queen-badge" style="background:${queenColor.color}; color:${queenColor.textColor};">
+                <span class="queen-badge" style="background:${hive.queen.color || queenColor.color}; color:${queenColor.textColor};">
                   👑 Ano ${hive.queen.year}
                 </span>
               </div>
 
-              <!-- Métricas da Colmeia -->
               <div class="hive-metrics">
                 <div class="hive-metric-item">
                   <span>Quadros Ninho</span>
@@ -580,7 +740,7 @@ function renderApiariesView(data) {
 
               <div style="display:flex; gap:0.5rem; margin-top:1rem;">
                 <button class="btn btn-secondary btn-edit-hive" data-id="${hive.id}" style="flex:1; padding:0.4rem; font-size:0.8rem;">
-                  ✏️ Editar
+                  ✏️ Editar Colmeia
                 </button>
                 <button class="btn btn-danger btn-delete-hive" data-id="${hive.id}" style="padding:0.4rem 0.75rem; font-size:0.8rem;">
                   🗑️
@@ -911,7 +1071,6 @@ function renderAnalyticsView(data) {
       </div>
 
       <div style="display:grid; grid-template-columns: 1fr 1fr; gap:1.5rem;">
-        <!-- Card 1: Distribuição de Produção -->
         <div style="background:rgba(15,23,42,0.6); padding:1.5rem; border-radius:var(--radius-lg); border:1px solid var(--slate-700);">
           <h3 style="color:var(--honey-400); margin-bottom:1rem; font-size:1.1rem;">🍯 Rendimento por Produto</h3>
           <ul style="list-style:none; display:flex; flex-direction:column; gap:0.75rem;">
@@ -926,7 +1085,6 @@ function renderAnalyticsView(data) {
           </ul>
         </div>
 
-        <!-- Card 2: Distribuição das Rainhas por Ano -->
         <div style="background:rgba(15,23,42,0.6); padding:1.5rem; border-radius:var(--radius-lg); border:1px solid var(--slate-700);">
           <h3 style="color:var(--honey-400); margin-bottom:1rem; font-size:1.1rem;">👑 Idade do Enxame (Ano da Rainha)</h3>
           <div style="display:flex; flex-direction:column; gap:0.75rem;">
@@ -999,7 +1157,7 @@ function renderGuideView() {
 }
 
 /* ==========================================================================
-   MODAIS & FORMULÁRIOS
+   MODAIS AUXILIARES
    ========================================================================== */
 function closeModal() {
   const modalBackdrop = document.getElementById('modal-backdrop');
