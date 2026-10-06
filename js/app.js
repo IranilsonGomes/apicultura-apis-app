@@ -1041,9 +1041,14 @@ function renderApiariesView(data) {
                   <div style="font-size:0.75rem; color:var(--slate-400);">${ap.location || 'Sem localização'}</div>
                   <div style="font-size:0.75rem; color:var(--emerald-500); margin-top:0.2rem;">${count} colmeias instaladas</div>
                 </div>
-                <button class="btn btn-danger btn-delete-apiary" data-id="${ap.id}" style="padding:0.3rem 0.6rem; font-size:0.75rem;" title="Excluir Apiário">
-                  🗑️
-                </button>
+                <div style="display:flex; gap:0.4rem; align-items:center;">
+                  <button class="btn btn-secondary btn-edit-apiary" data-id="${ap.id}" style="padding:0.3rem 0.6rem; font-size:0.75rem;" title="Editar Apiário">
+                    ✏️
+                  </button>
+                  <button class="btn btn-danger btn-delete-apiary" data-id="${ap.id}" style="padding:0.3rem 0.6rem; font-size:0.75rem;" title="Excluir Apiário">
+                    🗑️
+                  </button>
+                </div>
               </div>
             `;
           }).join('')}
@@ -1161,6 +1166,16 @@ function bindApiariesEvents(data) {
     } else {
       openHiveModal(data);
     }
+  });
+
+  document.querySelectorAll('.btn-edit-apiary').forEach(btn => {
+    btn.addEventListener('click', () => {
+      const apiaryId = btn.getAttribute('data-id');
+      const apiary = data.apiaries.find(a => a.id === apiaryId);
+      if (apiary) {
+        openApiaryModal(apiary);
+      }
+    });
   });
 
   document.querySelectorAll('.btn-delete-apiary').forEach(btn => {
@@ -1554,4 +1569,177 @@ function openModal(title, contentHtml) {
 
   modalBackdrop.classList.add('active');
   document.getElementById('modal-close-x')?.addEventListener('click', closeModal);
+}
+
+// ==========================================================================
+// FORMULÁRIOS DE CADASTRO DE APIÁRIOS E COLMEIAS (CORRIGIDOS DE VERDADE)
+// ==========================================================================
+
+function openApiaryModal(existingApiary = null) {
+  const isEdit = !!existingApiary;
+  const ap = existingApiary || {};
+
+  const html = `
+    <form id="form-add-apiary" class="form-grid">
+      <div class="form-group">
+        <label>Nome do Apiário:</label>
+        <input type="text" id="ap-name" class="form-control" value="${ap.name || ''}" placeholder="Ex: Apiário Vale das Abelhas" required>
+      </div>
+      <div class="form-group">
+        <label>Localização / Coordenadas:</label>
+        <input type="text" id="ap-location" class="form-control" value="${ap.location || ''}" placeholder="Ex: Sítio São João - Lote 12">
+      </div>
+      <div class="form-group" style="grid-column: 1 / -1;">
+        <label>Notas / Descrição da Flora Próxima:</label>
+        <textarea id="ap-notes" class="form-control" rows="2" placeholder="Ex: Próximo a florada de eucalipto e mata nativa.">${ap.notes || ''}</textarea>
+      </div>
+      <div style="grid-column: 1 / -1; display:flex; justify-content:flex-end; gap:0.75rem; margin-top:1rem;">
+        <button type="button" class="btn btn-secondary" id="btn-cancelar-apiary">Cancelar</button>
+        <button type="submit" class="btn btn-primary">${isEdit ? 'Salvar Alterações' : 'Salvar Apiário'}</button>
+      </div>
+    </form>
+  `;
+
+  openModal(isEdit ? `🏞️ Editar Apiário: ${ap.name}` : '🏞️ Cadastrar Novo Apiário', html);
+
+  // Corrige a ação do botão Cancelar
+  document.getElementById('btn-cancelar-apiary').addEventListener('click', closeModal);
+
+  document.getElementById('form-add-apiary').addEventListener('submit', (e) => {
+    e.preventDefault();
+    const apiaryData = {
+      id: isEdit ? ap.id : undefined,
+      name: document.getElementById('ap-name').value,
+      location: document.getElementById('ap-location').value,
+      notes: document.getElementById('ap-notes').value
+    };
+    
+    if (isEdit && ap.createdAt) {
+      apiaryData.createdAt = ap.createdAt;
+    }
+
+    ApisStorage.saveApiary(apiaryData);
+    closeModal();
+    renderApp();
+  });
+}
+
+function openHiveModal(data = ApisStorage.getAll(), existingHive = null) {
+  const isEdit = !!existingHive;
+  const h = existingHive || {};
+  const currentYear = new Date().getFullYear();
+
+  // Mapeia as opções de apiários sem quebrar as strings do JavaScript
+  let apiaryOptions = '';
+  if (data.apiaries && data.apiaries.length > 0) {
+    data.apiaries.forEach(a => {
+      const selected = h.apiaryId === a.id ? 'selected' : '';
+      apiaryOptions += `<option value="${a.id}" ${selected}>${a.name}</option>`;
+    });
+  }
+
+  const html = `
+    <form id="form-edit-hive" class="form-grid">
+      <div class="form-group">
+        <label>Código da Colmeia:</label>
+        <input type="text" id="hv-code" class="form-control" value="${h.code || 'CX-' + (data.hives.length + 1)}" required>
+      </div>
+      <div class="form-group">
+        <label>Nome Apelido:</label>
+        <input type="text" id="hv-name" class="form-control" value="${h.name || 'Enxame Forte'}" required>
+      </div>
+      <div class="form-group">
+        <label>Apiário Alocado:</label>
+        <select id="hv-apiaryId" class="form-control" required>
+          <option value="">Selecione um Apiário...</option>
+          ${apiaryOptions}
+        </select>
+      </div>
+      <div class="form-group">
+        <label>Modelo da Caixa:</label>
+        <select id="hv-type" class="form-control">
+          <option value="Langstroth" ${h.type === 'Langstroth' ? 'selected' : ''}>Langstroth (Padrão)</option>
+          <option value="Schenck" ${h.type === 'Schenck' ? 'selected' : ''}>Schenck</option>
+          <option value="Top Bar" ${h.type === 'Top Bar' ? 'selected' : ''}>Top Bar</option>
+        </select>
+      </div>
+      <div class="form-group">
+        <label>Ano de Nasc. da Rainha:</label>
+        <input type="number" id="hv-q-year" class="form-control" value="${h.queen?.year || currentYear}" required>
+      </div>
+      <div class="form-group">
+        <label>Origem do Enxame:</label>
+        <input type="text" id="hv-origin" class="form-control" value="${h.origin || 'Captura de Resgate'}" placeholder="Ex: Divisão, Captura">
+      </div>
+      <div class="form-group">
+        <label>Quadros com Cria (Ninho):</label>
+        <input type="number" id="hv-framesBrood" class="form-control" min="0" max="10" value="${h.framesBrood || 5}">
+      </div>
+      <div class="form-group">
+        <label>Quadros com Mel (Ninho):</label>
+        <input type="number" id="hv-framesHoney" class="form-control" min="0" max="10" value="${h.framesHoney || 3}">
+      </div>
+      <div class="form-group">
+        <label>Quantidade de Melgueiras:</label>
+        <input type="number" id="hv-supersCount" class="form-control" min="0" max="10" value="${h.supersCount || 0}">
+      </div>
+      <div class="form-group">
+        <label>Nível de Mansidão (1 a 5):</label>
+        <input type="number" id="hv-temperament" class="form-control" min="1" max="5" value="${h.temperament || 4}">
+      </div>
+      <div class="form-group">
+        <label>Pontuação de Saúde (0% a 100%):</label>
+        <input type="number" id="hv-healthScore" class="form-control" min="0" max="100" value="${h.healthScore || 90}">
+      </div>
+      <div class="form-group">
+        <label>Status Atual:</label>
+        <select id="hv-status" class="form-control">
+          <option value="Ativa" ${h.status === 'Ativa' ? 'selected' : ''}>Ativa</option>
+          <option value="Atenção" ${h.status === 'Atenção' ? 'selected' : ''}>Atenção</option>
+        </select>
+      </div>
+      <div style="grid-column: 1 / -1; display:flex; justify-content:flex-end; gap:0.75rem; margin-top:1rem;">
+        <button type="button" class="btn btn-secondary" id="btn-cancelar-colmeia">Cancelar</button>
+        <button type="submit" class="btn btn-primary">${isEdit ? 'Salvar Alterações' : 'Cadastrar Colmeia'}</button>
+      </div>
+    </form>
+  `;
+
+  openModal(isEdit ? `✏️ Editar Colmeia: ${h.code}` : '📦 Cadastrar Nova Colmeia', html);
+
+  // Corrige a ação do botão Cancelar
+  document.getElementById('btn-cancelar-colmeia').addEventListener('click', closeModal);
+
+  document.getElementById('form-edit-hive').addEventListener('submit', (e) => {
+    e.preventDefault();
+    const qYear = parseInt(document.getElementById('hv-q-year').value, 10);
+    const autoColor = getQueenColorForYear(qYear);
+
+    const hiveData = {
+      id: isEdit ? h.id : undefined,
+      code: document.getElementById('hv-code').value,
+      name: document.getElementById('hv-name').value,
+      apiaryId: document.getElementById('hv-apiaryId').value,
+      type: document.getElementById('hv-type').value,
+      origin: document.getElementById('hv-origin').value,
+      framesBrood: parseInt(document.getElementById('hv-framesBrood').value, 10) || 0,
+      framesHoney: parseInt(document.getElementById('hv-framesHoney').value, 10) || 0,
+      supersCount: parseInt(document.getElementById('hv-supersCount').value, 10) || 0,
+      temperament: parseInt(document.getElementById('hv-temperament').value, 10) || 4,
+      healthScore: parseInt(document.getElementById('hv-healthScore').value, 10) || 100,
+      status: document.getElementById('hv-status').value,
+      queen: h.queen ? { ...h.queen, year: qYear, color: autoColor.color } : {
+        year: qYear,
+        color: autoColor.color,
+        marked: true,
+        origin: 'Matriz do Enxame',
+        postureStatus: 'Boa postura',
+        ageMonths: 6
+      }
+    };
+
+    ApisStorage.saveHive(hiveData);
+    closeModal();
+    renderApp();
+  });
 }

@@ -7,7 +7,7 @@ try {
     $listener.Start()
     Write-Host "Servidor ApisApp Pro ativo em $prefix"
 } catch {
-    Write-Host "Não foi possível iniciar o listener na porta $port: $_"
+    Write-Host "NÃ£o foi possÃ­vel iniciar o listener na porta ${port}: $_"
     exit
 }
 

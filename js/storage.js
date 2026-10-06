@@ -245,18 +245,24 @@ export const ApisStorage = {
     if (hive.queen) {
       const queens = this.getQueens();
       let q = queens.find(item => item.hiveId === hive.id);
+      
       if (!q) {
         q = {
           id: 'queen-' + Date.now(),
-          name: 'Rainha ' + hive.code,
-          hiveId: hive.id,
-          apiaryId: hive.apiaryId,
-          ...hive.queen
+          name: 'Rainha ' + (hive.code || ''),
+          hiveId: hive.id
         };
         queens.push(q);
-      } else {
-        Object.assign(q, hive.queen, { hiveId: hive.id, apiaryId: hive.apiaryId });
       }
+      
+      // Atualiza os dados da rainha com o que veio da colmeia
+      q.year = hive.queen.year;
+      q.color = hive.queen.color;
+      q.marked = hive.queen.marked;
+      q.origin = hive.queen.origin;
+      q.postureStatus = hive.queen.postureStatus;
+      q.ageMonths = hive.queen.ageMonths;
+
       localStorage.setItem(STORAGE_KEYS.QUEENS, JSON.stringify(queens));
     }
 
