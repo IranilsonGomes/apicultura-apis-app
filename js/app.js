@@ -1042,7 +1042,7 @@ function renderApiariesView(data) {
                   <div style="font-size:0.75rem; color:var(--emerald-500); margin-top:0.2rem;">${count} colmeias instaladas</div>
                 </div>
                 <div style="display:flex; gap:0.4rem; align-items:center;">
-                  <button class="btn btn-secondary btn-edit-apiary" data-id="${ap.id}" style="padding:0.3rem 0.6rem; font-size:0.75rem;" title="Editar Apiário">
+                  <button class="btn btn-secondary btn-edit-apiary" data-id="${ap.id}" style="padding:0.3rem 0.55rem; font-size:0.75rem;" title="Editar Apiário">
                     ✏️
                   </button>
                   <button class="btn btn-danger btn-delete-apiary" data-id="${ap.id}" style="padding:0.3rem 0.6rem; font-size:0.75rem;" title="Excluir Apiário">
@@ -1172,9 +1172,7 @@ function bindApiariesEvents(data) {
     btn.addEventListener('click', () => {
       const apiaryId = btn.getAttribute('data-id');
       const apiary = data.apiaries.find(a => a.id === apiaryId);
-      if (apiary) {
-        openApiaryModal(apiary);
-      }
+      if (apiary) openApiaryModal(apiary);
     });
   });
 
@@ -1575,6 +1573,238 @@ function openModal(title, contentHtml) {
 // FORMULÁRIOS DE CADASTRO DE APIÁRIOS E COLMEIAS (CORRIGIDOS DE VERDADE)
 // ==========================================================================
 
+// ==========================================================================
+// FORMULÁRIO DE INSPEÇÃO DE CAMPO
+// ==========================================================================
+function openInspectionModal(data = ApisStorage.getAll(), existingInspection = null) {
+  const isEdit = !!existingInspection;
+  const insp = existingInspection || {};
+  const hives = data.hives || [];
+
+  if (hives.length === 0) {
+    alert('Cadastre primeiro pelo menos uma colmeia para registrar uma inspeção.');
+    return;
+  }
+
+  const hiveOptions = hives.map(h => {
+    const selected = insp.hiveId === h.id ? 'selected' : '';
+    return `<option value="${h.id}" ${selected}>${h.code || ''} - ${h.name || 'Colmeia'}</option>`;
+  }).join('');
+
+  const actionsText = Array.isArray(insp.actionsTaken) ? insp.actionsTaken.join('\
+') : (insp.actionsTaken || '');
+
+  const html = `
+    <form id="form-inspection" class="form-grid">
+      <div class="form-group">
+        <label>Data da Inspeção:</label>
+        <input type="date" id="insp-date" class="form-control" value="${insp.date || new Date().toISOString().split('T')[0]}" required>
+      </div>
+
+      <div class="form-group">
+        <label>Colmeia:</label>
+        <select id="insp-hiveId" class="form-control" required>
+          <option value="">Selecione a colmeia...</option>
+          ${hiveOptions}
+        </select>
+      </div>
+
+      <div class="form-group">
+        <label>Responsável / Inspetor:</label>
+        <input type="text" id="insp-inspector" class="form-control" value="${insp.inspector || ''}" placeholder="Nome do responsável" required>
+      </div>
+
+      <div class="form-group">
+        <label>Reservas de Alimento:</label>
+        <select id="insp-foodReserves" class="form-control">
+          <option value="Boa" ${insp.foodReserves === 'Boa' ? 'selected' : ''}>Boa</option>
+          <option value="Regular" ${insp.foodReserves === 'Regular' ? 'selected' : ''}>Regular</option>
+          <option value="Baixa" ${insp.foodReserves === 'Baixa' ? 'selected' : ''}>Baixa</option>
+          <option value="Crítica" ${insp.foodReserves === 'Crítica' ? 'selected' : ''}>Crítica</option>
+        </select>
+      </div>
+
+      <div class="form-group" style="grid-column:1 / -1;">
+        <label style="display:flex; align-items:center; gap:0.5rem; cursor:pointer;">
+          <input type="checkbox" id="insp-queenSpotted" ${insp.queenSpotted ? 'checked' : ''}>
+          👑 Rainha visualizada
+        </label>
+        <label style="display:flex; align-items:center; gap:0.5rem; cursor:pointer; margin-top:0.6rem;">
+          <input type="checkbox" id="insp-eggsPresent" ${insp.eggsPresent ? 'checked' : ''}>
+          🥚 Ovos / larvas presentes
+        </label>
+        <label style="display:flex; align-items:center; gap:0.5rem; cursor:pointer; margin-top:0.6rem;">
+          <input type="checkbox" id="insp-queenCellsSpotted" ${insp.queenCellsSpotted ? 'checked' : ''}>
+          🚨 Realeiras encontradas
+        </label>
+      </div>
+
+      <div class="form-group" style="grid-column:1 / -1;">
+        <label>Pragas / Problemas Sanitários:</label>
+        <textarea id="insp-pestsFound" class="form-control" rows="3" placeholder="Ex.: Nenhuma praga observada; presença de formigas; sinais de traça...">${insp.pestsFound || ''}</textarea>
+      </div>
+
+      <div class="form-group" style="grid-column:1 / -1;">
+        <label>Ações Tomadas:</label>
+        <textarea id="insp-actionsTaken" class="form-control" rows="3" placeholder="Descreva as ações realizadas. Pode colocar uma ação por linha.">${actionsText}</textarea>
+      </div>
+
+      <div style="grid-column:1 / -1; display:flex; justify-content:flex-end; gap:0.75rem; margin-top:1rem;">
+        <button type="button" class="btn btn-secondary" id="btn-cancelar-inspection">Cancelar</button>
+        <button type="submit" class="btn btn-primary">${isEdit ? 'Salvar Alterações' : 'Registrar Inspeção'}</button>
+      </div>
+    </form>
+  `;
+
+  openModal(isEdit ? '📋 Editar Inspeção' : '📋 Registrar Nova Inspeção', html);
+
+  document.getElementById('btn-cancelar-inspection')?.addEventListener('click', closeModal);
+
+  document.getElementById('form-inspection')?.addEventListener('submit', (e) => {
+    e.preventDefault();
+
+    const inspectionData = {
+      id: isEdit ? insp.id : undefined,
+      date: document.getElementById('insp-date').value,
+      hiveId: document.getElementById('insp-hiveId').value,
+      inspector: document.getElementById('insp-inspector').value.trim(),
+      queenSpotted: document.getElementById('insp-queenSpotted').checked,
+      eggsPresent: document.getElementById('insp-eggsPresent').checked,
+      queenCellsSpotted: document.getElementById('insp-queenCellsSpotted').checked,
+      foodReserves: document.getElementById('insp-foodReserves').value,
+      pestsFound: document.getElementById('insp-pestsFound').value.trim(),
+      actionsTaken: document.getElementById('insp-actionsTaken').value
+        .split('\
+')
+        .map(v => v.trim())
+        .filter(Boolean)
+    };
+
+    if (!inspectionData.hiveId) {
+      alert('Selecione uma colmeia.');
+      return;
+    }
+
+    if (!inspectionData.inspector) {
+      alert('Informe o responsável pela inspeção.');
+      return;
+    }
+
+    ApisStorage.saveInspection(inspectionData);
+    closeModal();
+    renderApp();
+  });
+}
+
+// ==========================================================================
+// FORMULÁRIO DE COLHEITA
+// ==========================================================================
+function openHarvestModal(data = ApisStorage.getAll(), existingHarvest = null) {
+  const isEdit = !!existingHarvest;
+  const harv = existingHarvest || {};
+  const apiaries = data.apiaries || [];
+
+  if (apiaries.length === 0) {
+    alert('Cadastre primeiro pelo menos um apiário para registrar uma colheita.');
+    return;
+  }
+
+  const apiaryOptions = apiaries.map(a => {
+    const selected = harv.apiaryId === a.id ? 'selected' : '';
+    return `<option value="${a.id}" ${selected}>${a.name}</option>`;
+  }).join('');
+
+  const html = `
+    <form id="form-harvest" class="form-grid">
+      <div class="form-group">
+        <label>Data da Colheita:</label>
+        <input type="date" id="harv-date" class="form-control" value="${harv.date || new Date().toISOString().split('T')[0]}" required>
+      </div>
+
+      <div class="form-group">
+        <label>Apiário:</label>
+        <select id="harv-apiaryId" class="form-control" required>
+          <option value="">Selecione o apiário...</option>
+          ${apiaryOptions}
+        </select>
+      </div>
+
+      <div class="form-group">
+        <label>Produto:</label>
+        <select id="harv-product" class="form-control" required>
+          <option value="Mel" ${harv.product === 'Mel' ? 'selected' : ''}>🍯 Mel</option>
+          <option value="Própolis" ${harv.product === 'Própolis' ? 'selected' : ''}>🌿 Própolis</option>
+          <option value="Geleia Real" ${harv.product === 'Geleia Real' ? 'selected' : ''}>👑 Geleia Real</option>
+          <option value="Cera" ${harv.product === 'Cera' ? 'selected' : ''}>🕯️ Cera</option>
+        </select>
+      </div>
+
+      <div class="form-group">
+        <label>Quantidade (kg):</label>
+        <input type="number" id="harv-quantityKg" class="form-control" min="0" step="0.01" value="${harv.quantityKg || ''}" required>
+      </div>
+
+      <div class="form-group">
+        <label>Florada / Origem Floral:</label>
+        <input type="text" id="harv-floralSource" class="form-control" value="${harv.floralSource || ''}" placeholder="Ex.: Silvestre, Eucalipto, Cajueiro...">
+      </div>
+
+      <div class="form-group">
+        <label>Nº do Lote:</label>
+        <input type="text" id="harv-batchNumber" class="form-control" value="${harv.batchNumber || ''}" placeholder="Ex.: LOTE-2026-001">
+      </div>
+
+      <div class="form-group">
+        <label>Umidade (%):</label>
+        <input type="number" id="harv-moisturePct" class="form-control" min="0" max="100" step="0.1" value="${harv.moisturePct || ''}" placeholder="Ex.: 17,5">
+      </div>
+
+      <div class="form-group">
+        <label>Valor Unitário (R$/kg):</label>
+        <input type="number" id="harv-unitPriceBrl" class="form-control" min="0" step="0.01" value="${harv.unitPriceBrl || ''}" placeholder="Ex.: 18,00">
+      </div>
+
+      <div style="grid-column:1 / -1; display:flex; justify-content:flex-end; gap:0.75rem; margin-top:1rem;">
+        <button type="button" class="btn btn-secondary" id="btn-cancelar-harvest">Cancelar</button>
+        <button type="submit" class="btn btn-primary">${isEdit ? 'Salvar Alterações' : 'Registrar Colheita'}</button>
+      </div>
+    </form>
+  `;
+
+  openModal(isEdit ? '🍯 Editar Colheita' : '🍯 Registrar Nova Colheita', html);
+
+  document.getElementById('btn-cancelar-harvest')?.addEventListener('click', closeModal);
+
+  document.getElementById('form-harvest')?.addEventListener('submit', (e) => {
+    e.preventDefault();
+
+    const quantity = parseFloat(document.getElementById('harv-quantityKg').value);
+    const moisture = parseFloat(document.getElementById('harv-moisturePct').value) || 0;
+    const price = parseFloat(document.getElementById('harv-unitPriceBrl').value) || 0;
+
+    if (isNaN(quantity) || quantity <= 0) {
+      alert('Informe uma quantidade válida maior que zero.');
+      return;
+    }
+
+    const harvestData = {
+      id: isEdit ? harv.id : undefined,
+      date: document.getElementById('harv-date').value,
+      apiaryId: document.getElementById('harv-apiaryId').value,
+      product: document.getElementById('harv-product').value,
+      quantityKg: quantity,
+      floralSource: document.getElementById('harv-floralSource').value.trim(),
+      batchNumber: document.getElementById('harv-batchNumber').value.trim() || `LOTE-${new Date().getFullYear()}-${Date.now().toString().slice(-5)}`,
+      moisturePct: moisture,
+      unitPriceBrl: price
+    };
+
+    ApisStorage.saveHarvest(harvestData);
+    closeModal();
+    renderApp();
+  });
+}
+
 function openApiaryModal(existingApiary = null) {
   const isEdit = !!existingApiary;
   const ap = existingApiary || {};
@@ -1589,11 +1819,11 @@ function openApiaryModal(existingApiary = null) {
         <label>Localização / Coordenadas:</label>
         <input type="text" id="ap-location" class="form-control" value="${ap.location || ''}" placeholder="Ex: Sítio São João - Lote 12">
       </div>
-      <div class="form-group" style="grid-column: 1 / -1;">
+      <div class="form-group" style="grid-column:1 / -1;">
         <label>Notas / Descrição da Flora Próxima:</label>
         <textarea id="ap-notes" class="form-control" rows="2" placeholder="Ex: Próximo a florada de eucalipto e mata nativa.">${ap.notes || ''}</textarea>
       </div>
-      <div style="grid-column: 1 / -1; display:flex; justify-content:flex-end; gap:0.75rem; margin-top:1rem;">
+      <div style="grid-column:1 / -1; display:flex; justify-content:flex-end; gap:0.75rem; margin-top:1rem;">
         <button type="button" class="btn btn-secondary" id="btn-cancelar-apiary">Cancelar</button>
         <button type="submit" class="btn btn-primary">${isEdit ? 'Salvar Alterações' : 'Salvar Apiário'}</button>
       </div>
@@ -1602,20 +1832,23 @@ function openApiaryModal(existingApiary = null) {
 
   openModal(isEdit ? `🏞️ Editar Apiário: ${ap.name}` : '🏞️ Cadastrar Novo Apiário', html);
 
-  // Corrige a ação do botão Cancelar
-  document.getElementById('btn-cancelar-apiary').addEventListener('click', closeModal);
+  document.getElementById('btn-cancelar-apiary')?.addEventListener('click', closeModal);
 
-  document.getElementById('form-add-apiary').addEventListener('submit', (e) => {
+  document.getElementById('form-add-apiary')?.addEventListener('submit', (e) => {
     e.preventDefault();
+
     const apiaryData = {
       id: isEdit ? ap.id : undefined,
-      name: document.getElementById('ap-name').value,
-      location: document.getElementById('ap-location').value,
-      notes: document.getElementById('ap-notes').value
+      name: document.getElementById('ap-name').value.trim(),
+      location: document.getElementById('ap-location').value.trim(),
+      notes: document.getElementById('ap-notes').value.trim()
     };
-    
-    if (isEdit && ap.createdAt) {
-      apiaryData.createdAt = ap.createdAt;
+
+    if (isEdit && ap.createdAt) apiaryData.createdAt = ap.createdAt;
+
+    if (!apiaryData.name) {
+      alert('Informe o nome do apiário.');
+      return;
     }
 
     ApisStorage.saveApiary(apiaryData);
