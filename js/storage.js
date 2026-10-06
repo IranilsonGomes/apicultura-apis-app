@@ -1,11 +1,12 @@
 /**
  * ApisApp - Sistema de Gestão para Apicultura (Abelhas Apis mellifera)
- * Módulo de Armazenamento Local - Gestão e Personalização de Rainhas e Cores
+ * Módulo de Armazenamento Local - Cadastro e Edição Livre de Rainhas e Cores
  */
 
 const STORAGE_KEYS = {
   APIARIES: 'apisapp_apiaries',
   HIVES: 'apisapp_hives',
+  QUEENS: 'apisapp_queens',
   INSPECTIONS: 'apisapp_inspections',
   HARVESTS: 'apisapp_harvests',
   SETTINGS: 'apisapp_settings',
@@ -25,6 +26,7 @@ const DEFAULT_QUEEN_COLOR_CODES = [
 const EMPTY_DATA = {
   apiaries: [],
   hives: [],
+  queens: [],
   inspections: [],
   harvests: []
 };
@@ -44,6 +46,7 @@ export const ApisStorage = {
     return {
       apiaries: JSON.parse(localStorage.getItem(STORAGE_KEYS.APIARIES) || '[]'),
       hives: JSON.parse(localStorage.getItem(STORAGE_KEYS.HIVES) || '[]'),
+      queens: JSON.parse(localStorage.getItem(STORAGE_KEYS.QUEENS) || '[]'),
       inspections: JSON.parse(localStorage.getItem(STORAGE_KEYS.INSPECTIONS) || '[]'),
       harvests: JSON.parse(localStorage.getItem(STORAGE_KEYS.HARVESTS) || '[]')
     };
@@ -52,6 +55,7 @@ export const ApisStorage = {
   saveAll(data) {
     localStorage.setItem(STORAGE_KEYS.APIARIES, JSON.stringify(data.apiaries || []));
     localStorage.setItem(STORAGE_KEYS.HIVES, JSON.stringify(data.hives || []));
+    localStorage.setItem(STORAGE_KEYS.QUEENS, JSON.stringify(data.queens || []));
     localStorage.setItem(STORAGE_KEYS.INSPECTIONS, JSON.stringify(data.inspections || []));
     localStorage.setItem(STORAGE_KEYS.HARVESTS, JSON.stringify(data.harvests || []));
   },
@@ -62,7 +66,53 @@ export const ApisStorage = {
   },
 
   // --------------------------------------------------------------------------
-  // GESTÃO E PERSONALIZAÇÃO DE CORES DE RAINHAS
+  // GESTÃO DIRETA DE RAINHAS (Criar, Editar, Listar, Excluir)
+  // --------------------------------------------------------------------------
+
+  getQueens() {
+    return JSON.parse(localStorage.getItem(STORAGE_KEYS.QUEENS) || '[]');
+  },
+
+  saveQueen(queen) {
+    const list = this.getQueens();
+    if (queen.id) {
+      const idx = list.findIndex(q => q.id === queen.id);
+      if (idx !== -1) list[idx] = queen;
+      else list.push(queen);
+    } else {
+      queen.id = 'queen-' + Date.now();
+      list.push(queen);
+    }
+    localStorage.setItem(STORAGE_KEYS.QUEENS, JSON.stringify(list));
+
+    // Se a rainha estiver vinculada a uma colmeia, atualizar a colmeia também
+    if (queen.hiveId) {
+      const hives = this.getHives();
+      const hive = hives.find(h => h.id === queen.hiveId);
+      if (hive) {
+        hive.queen = {
+          year: queen.year,
+          color: queen.color,
+          marked: queen.marked,
+          origin: queen.origin,
+          postureStatus: queen.postureStatus,
+          ageMonths: queen.ageMonths
+        };
+        localStorage.setItem(STORAGE_KEYS.HIVES, JSON.stringify(hives));
+      }
+    }
+
+    return queen;
+  },
+
+  deleteQueen(id) {
+    let list = this.getQueens();
+    list = list.filter(q => q.id !== id);
+    localStorage.setItem(STORAGE_KEYS.QUEENS, JSON.stringify(list));
+  },
+
+  // --------------------------------------------------------------------------
+  // PERSONALIZAÇÃO DE CORES
   // --------------------------------------------------------------------------
 
   getQueenColorCodes() {
@@ -78,10 +128,7 @@ export const ApisStorage = {
     return DEFAULT_QUEEN_COLOR_CODES;
   },
 
-  // --------------------------------------------------------------------------
-  // BACKUP DIÁRIO AUTOMÁTICO & GOOGLE DRIVE
-  // --------------------------------------------------------------------------
-
+  // BACKUP DIÁRIO AUTOMÁTICO
   getLastBackupDate() {
     return localStorage.getItem(STORAGE_KEYS.LAST_BACKUP_DATE) || null;
   },
@@ -107,7 +154,7 @@ export const ApisStorage = {
       id: 'snap-' + Date.now(),
       date: dateStr || new Date().toISOString().split('T')[0],
       timestamp: new Date().toISOString(),
-      summary: `${data.apiaries.length} apiários, ${data.hives.length} colmeias, ${data.inspections.length} inspeções`,
+      summary: `${data.apiaries.length} apiários, ${data.hives.length} colmeias, ${data.queens.length} rainhas, ${data.inspections.length} inspeções`,
       data: data
     };
 
@@ -193,24 +240,38 @@ export const ApisStorage = {
       list.push(hive);
     }
     localStorage.setItem(STORAGE_KEYS.HIVES, JSON.stringify(list));
-    return hive;
-  },
 
-  saveHiveQueen(hiveId, queenData) {
-    const hives = this.getHives();
-    const hive = hives.find(h => h.id === hiveId);
-    if (hive) {
-      hive.queen = { ...hive.queen, ...queenData };
-      localStorage.setItem(STORAGE_KEYS.HIVES, JSON.stringify(hives));
-      return hive;
+    // Auto-sincronizar rainha com a lista de rainhas
+    if (hive.queen) {
+      const queens = this.getQueens();
+      let q = queens.find(item => item.hiveId === hive.id);
+      if (!q) {
+        q = {
+          id: 'queen-' + Date.now(),
+          name: 'Rainha ' + hive.code,
+          hiveId: hive.id,
+          apiaryId: hive.apiaryId,
+          ...hive.queen
+        };
+        queens.push(q);
+      } else {
+        Object.assign(q, hive.queen, { hiveId: hive.id, apiaryId: hive.apiaryId });
+      }
+      localStorage.setItem(STORAGE_KEYS.QUEENS, JSON.stringify(queens));
     }
-    return null;
+
+    return hive;
   },
 
   deleteHive(id) {
     let list = this.getHives();
     list = list.filter(h => h.id !== id);
     localStorage.setItem(STORAGE_KEYS.HIVES, JSON.stringify(list));
+
+    // Remover rainha associada
+    let queens = this.getQueens();
+    queens = queens.filter(q => q.hiveId !== id);
+    localStorage.setItem(STORAGE_KEYS.QUEENS, JSON.stringify(queens));
   },
 
   // Inspeções
@@ -279,7 +340,7 @@ export const ApisStorage = {
   importJSON(jsonString) {
     try {
       const data = JSON.parse(jsonString);
-      if (data.apiaries && data.hives) {
+      if (data.apiaries || data.hives || data.queens) {
         this.saveAll(data);
         return true;
       }
@@ -295,7 +356,7 @@ export function getQueenColorForYear(year) {
   const codes = ApisStorage.getQueenColorCodes();
   const y = parseInt(year, 10);
   if (isNaN(y)) return codes[0];
-  const lastDigit = y % 10;
+  const lastDigit = Math.abs(y) % 10;
   if (lastDigit === 1 || lastDigit === 6) return codes[0]; // Branco
   if (lastDigit === 2 || lastDigit === 7) return codes[1]; // Amarelo
   if (lastDigit === 3 || lastDigit === 8) return codes[2]; // Vermelho

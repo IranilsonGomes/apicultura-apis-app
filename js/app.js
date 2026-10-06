@@ -1,16 +1,365 @@
 /**
- * ApisApp - Lógica da Aplicação Principal
- * Gestão Integrada de Apicultura (Apis mellifera) - Edição de Rainhas & Cores
+ * ApisApp Pro v1.0.5 - Código Unificado Standalone
+ * Gestão de Apicultura (Apis mellifera)
+ * Suporte a execução por duplo clique (file://) e por servidor local (http://)
  */
 
-import { ApisStorage, QUEEN_COLOR_CODES, getQueenColorForYear } from './storage.js';
+// ==========================================================================
+// 1. MÓDULO DE ARMAZENAMENTO & CORES (storage.js integrado)
+// ==========================================================================
 
-// Estado global da aplicação
+const STORAGE_KEYS = {
+  APIARIES: 'apisapp_apiaries',
+  HIVES: 'apisapp_hives',
+  QUEENS: 'apisapp_queens',
+  INSPECTIONS: 'apisapp_inspections',
+  HARVESTS: 'apisapp_harvests',
+  SETTINGS: 'apisapp_settings',
+  LAST_BACKUP_DATE: 'apisapp_last_backup_date',
+  BACKUPS_HISTORY: 'apisapp_backups_history',
+  QUEEN_COLORS: 'apisapp_queen_colors'
+};
+
+const DEFAULT_QUEEN_COLOR_CODES = [
+  { years: [2021, 2026, 2031], color: '#FFFFFF', textColor: '#0F172A', label: 'Branco (Anos 1 e 6)' },
+  { years: [2022, 2027, 2032], color: '#FACC15', textColor: '#0F172A', label: 'Amarelo (Anos 2 e 7)' },
+  { years: [2023, 2028, 2033], color: '#EF4444', textColor: '#FFFFFF', label: 'Vermelho (Anos 3 e 8)' },
+  { years: [2024, 2029, 2034], color: '#10B981', textColor: '#FFFFFF', label: 'Verde (Anos 4 e 9)' },
+  { years: [2025, 2030, 2035], color: '#3B82F6', textColor: '#FFFFFF', label: 'Azul (Anos 5 e 0)' }
+];
+
+const EMPTY_DATA = {
+  apiaries: [],
+  hives: [],
+  queens: [],
+  inspections: [],
+  harvests: []
+};
+
+const ApisStorage = {
+  init() {
+    if (!localStorage.getItem(STORAGE_KEYS.APIARIES)) {
+      this.clearAll();
+    }
+    if (!localStorage.getItem(STORAGE_KEYS.QUEEN_COLORS)) {
+      localStorage.setItem(STORAGE_KEYS.QUEEN_COLORS, JSON.stringify(DEFAULT_QUEEN_COLOR_CODES));
+    }
+    this.checkAutoBackup();
+  },
+
+  getAll() {
+    return {
+      apiaries: JSON.parse(localStorage.getItem(STORAGE_KEYS.APIARIES) || '[]'),
+      hives: JSON.parse(localStorage.getItem(STORAGE_KEYS.HIVES) || '[]'),
+      queens: JSON.parse(localStorage.getItem(STORAGE_KEYS.QUEENS) || '[]'),
+      inspections: JSON.parse(localStorage.getItem(STORAGE_KEYS.INSPECTIONS) || '[]'),
+      harvests: JSON.parse(localStorage.getItem(STORAGE_KEYS.HARVESTS) || '[]')
+    };
+  },
+
+  saveAll(data) {
+    localStorage.setItem(STORAGE_KEYS.APIARIES, JSON.stringify(data.apiaries || []));
+    localStorage.setItem(STORAGE_KEYS.HIVES, JSON.stringify(data.hives || []));
+    localStorage.setItem(STORAGE_KEYS.QUEENS, JSON.stringify(data.queens || []));
+    localStorage.setItem(STORAGE_KEYS.INSPECTIONS, JSON.stringify(data.inspections || []));
+    localStorage.setItem(STORAGE_KEYS.HARVESTS, JSON.stringify(data.harvests || []));
+  },
+
+  clearAll() {
+    this.saveAll(EMPTY_DATA);
+    return this.getAll();
+  },
+
+  getQueens() {
+    return JSON.parse(localStorage.getItem(STORAGE_KEYS.QUEENS) || '[]');
+  },
+
+  saveQueen(queen) {
+    const list = this.getQueens();
+    if (queen.id) {
+      const idx = list.findIndex(q => q.id === queen.id);
+      if (idx !== -1) list[idx] = queen;
+      else list.push(queen);
+    } else {
+      queen.id = 'queen-' + Date.now();
+      list.push(queen);
+    }
+    localStorage.setItem(STORAGE_KEYS.QUEENS, JSON.stringify(list));
+
+    if (queen.hiveId) {
+      const hives = this.getHives();
+      const hive = hives.find(h => h.id === queen.hiveId);
+      if (hive) {
+        hive.queen = {
+          year: queen.year,
+          color: queen.color,
+          marked: queen.marked,
+          origin: queen.origin,
+          postureStatus: queen.postureStatus,
+          ageMonths: queen.ageMonths
+        };
+        localStorage.setItem(STORAGE_KEYS.HIVES, JSON.stringify(hives));
+      }
+    }
+
+    return queen;
+  },
+
+  deleteQueen(id) {
+    let list = this.getQueens();
+    list = list.filter(q => q.id !== id);
+    localStorage.setItem(STORAGE_KEYS.QUEENS, JSON.stringify(list));
+  },
+
+  getQueenColorCodes() {
+    return JSON.parse(localStorage.getItem(STORAGE_KEYS.QUEEN_COLORS) || JSON.stringify(DEFAULT_QUEEN_COLOR_CODES));
+  },
+
+  saveQueenColorCodes(colorCodes) {
+    localStorage.setItem(STORAGE_KEYS.QUEEN_COLORS, JSON.stringify(colorCodes));
+  },
+
+  resetQueenColorCodes() {
+    localStorage.setItem(STORAGE_KEYS.QUEEN_COLORS, JSON.stringify(DEFAULT_QUEEN_COLOR_CODES));
+    return DEFAULT_QUEEN_COLOR_CODES;
+  },
+
+  getLastBackupDate() {
+    return localStorage.getItem(STORAGE_KEYS.LAST_BACKUP_DATE) || null;
+  },
+
+  getBackupsHistory() {
+    return JSON.parse(localStorage.getItem(STORAGE_KEYS.BACKUPS_HISTORY) || '[]');
+  },
+
+  checkAutoBackup() {
+    const today = new Date().toISOString().split('T')[0];
+    const lastBackup = this.getLastBackupDate();
+
+    if (lastBackup !== today) {
+      this.performAutoBackup(today);
+    }
+  },
+
+  performAutoBackup(dateStr) {
+    const data = this.getAll();
+    const history = this.getBackupsHistory();
+
+    const snapshot = {
+      id: 'snap-' + Date.now(),
+      date: dateStr || new Date().toISOString().split('T')[0],
+      timestamp: new Date().toISOString(),
+      summary: `${data.apiaries.length} apiários, ${data.hives.length} colmeias, ${data.queens.length} rainhas, ${data.inspections.length} inspeções`,
+      data: data
+    };
+
+    history.unshift(snapshot);
+    if (history.length > 30) history.pop();
+
+    localStorage.setItem(STORAGE_KEYS.BACKUPS_HISTORY, JSON.stringify(history));
+    localStorage.setItem(STORAGE_KEYS.LAST_BACKUP_DATE, snapshot.date);
+
+    return snapshot;
+  },
+
+  async shareToDriveOrEmail() {
+    const data = this.getAll();
+    const today = new Date().toISOString().split('T')[0];
+    const fileName = `ApisApp_Backup_${today}.json`;
+    const jsonStr = JSON.stringify(data, null, 2);
+
+    const file = new File([jsonStr], fileName, { type: 'application/json' });
+
+    if (navigator.canShare && navigator.canShare({ files: [file] })) {
+      try {
+        await navigator.share({
+          title: `Backup ApisApp (${today})`,
+          text: `Backup diário dos dados de apicultura - Abelhas Apis mellifera (${today}).`,
+          files: [file]
+        });
+        return { success: true, method: 'share' };
+      } catch (err) {
+        if (err.name !== 'AbortError') {
+          console.error("Erro ao compartilhar:", err);
+        }
+      }
+    }
+
+    this.exportJSON();
+    return { success: true, method: 'download' };
+  },
+
+  getApiaries() {
+    return JSON.parse(localStorage.getItem(STORAGE_KEYS.APIARIES) || '[]');
+  },
+
+  saveApiary(apiary) {
+    const list = this.getApiaries();
+    if (apiary.id) {
+      const idx = list.findIndex(a => a.id === apiary.id);
+      if (idx !== -1) list[idx] = apiary;
+      else list.push(apiary);
+    } else {
+      apiary.id = 'ap-' + Date.now();
+      apiary.createdAt = new Date().toISOString().split('T')[0];
+      list.push(apiary);
+    }
+    localStorage.setItem(STORAGE_KEYS.APIARIES, JSON.stringify(list));
+    return apiary;
+  },
+
+  deleteApiary(id) {
+    let list = this.getApiaries();
+    list = list.filter(a => a.id !== id);
+    localStorage.setItem(STORAGE_KEYS.APIARIES, JSON.stringify(list));
+
+    let hives = this.getHives();
+    hives = hives.filter(h => h.apiaryId !== id);
+    localStorage.setItem(STORAGE_KEYS.HIVES, JSON.stringify(hives));
+  },
+
+  getHives() {
+    return JSON.parse(localStorage.getItem(STORAGE_KEYS.HIVES) || '[]');
+  },
+
+  saveHive(hive) {
+    const list = this.getHives();
+    if (hive.id) {
+      const idx = list.findIndex(h => h.id === hive.id);
+      if (idx !== -1) list[idx] = hive;
+      else list.push(hive);
+    } else {
+      hive.id = 'hive-' + Date.now();
+      list.push(hive);
+    }
+    localStorage.setItem(STORAGE_KEYS.HIVES, JSON.stringify(list));
+
+    if (hive.queen) {
+      const queens = this.getQueens();
+      let q = queens.find(item => item.hiveId === hive.id);
+      if (!q) {
+        q = {
+          id: 'queen-' + Date.now(),
+          name: 'Rainha ' + hive.code,
+          hiveId: hive.id,
+          apiaryId: hive.apiaryId,
+          ...hive.queen
+        };
+        queens.push(q);
+      } else {
+        Object.assign(q, hive.queen, { hiveId: hive.id, apiaryId: hive.apiaryId });
+      }
+      localStorage.setItem(STORAGE_KEYS.QUEENS, JSON.stringify(queens));
+    }
+
+    return hive;
+  },
+
+  deleteHive(id) {
+    let list = this.getHives();
+    list = list.filter(h => h.id !== id);
+    localStorage.setItem(STORAGE_KEYS.HIVES, JSON.stringify(list));
+
+    let queens = this.getQueens();
+    queens = queens.filter(q => q.hiveId !== id);
+    localStorage.setItem(STORAGE_KEYS.QUEENS, JSON.stringify(queens));
+  },
+
+  getInspections() {
+    return JSON.parse(localStorage.getItem(STORAGE_KEYS.INSPECTIONS) || '[]');
+  },
+
+  saveInspection(inspection) {
+    const list = this.getInspections();
+    if (inspection.id) {
+      const idx = list.findIndex(i => i.id === inspection.id);
+      if (idx !== -1) list[idx] = inspection;
+      else list.push(inspection);
+    } else {
+      inspection.id = 'insp-' + Date.now();
+      list.push(inspection);
+    }
+    localStorage.setItem(STORAGE_KEYS.INSPECTIONS, JSON.stringify(list));
+    return inspection;
+  },
+
+  deleteInspection(id) {
+    let list = this.getInspections();
+    list = list.filter(i => i.id !== id);
+    localStorage.setItem(STORAGE_KEYS.INSPECTIONS, JSON.stringify(list));
+  },
+
+  getHarvests() {
+    return JSON.parse(localStorage.getItem(STORAGE_KEYS.HARVESTS) || '[]');
+  },
+
+  saveHarvest(harvest) {
+    const list = this.getHarvests();
+    if (harvest.id) {
+      const idx = list.findIndex(h => h.id === harvest.id);
+      if (idx !== -1) list[idx] = harvest;
+      else list.push(harvest);
+    } else {
+      harvest.id = 'harv-' + Date.now();
+      list.push(harvest);
+    }
+    localStorage.setItem(STORAGE_KEYS.HARVESTS, JSON.stringify(list));
+    return harvest;
+  },
+
+  deleteHarvest(id) {
+    let list = this.getHarvests();
+    list = list.filter(h => h.id !== id);
+    localStorage.setItem(STORAGE_KEYS.HARVESTS, JSON.stringify(list));
+  },
+
+  exportJSON() {
+    const data = this.getAll();
+    const dataStr = "data:text/json;charset=utf-8," + encodeURIComponent(JSON.stringify(data, null, 2));
+    const downloadAnchor = document.createElement('a');
+    downloadAnchor.setAttribute("href", dataStr);
+    downloadAnchor.setAttribute("download", `ApisApp_Backup_${new Date().toISOString().split('T')[0]}.json`);
+    document.body.appendChild(downloadAnchor);
+    downloadAnchor.click();
+    downloadAnchor.remove();
+  },
+
+  importJSON(jsonString) {
+    try {
+      const data = JSON.parse(jsonString);
+      if (data.apiaries || data.hives || data.queens) {
+        this.saveAll(data);
+        return true;
+      }
+      return false;
+    } catch (e) {
+      console.error("Erro ao importar backup:", e);
+      return false;
+    }
+  }
+};
+
+function getQueenColorForYear(year) {
+  const codes = ApisStorage.getQueenColorCodes();
+  const y = parseInt(year, 10);
+  if (isNaN(y)) return codes[0];
+  const lastDigit = Math.abs(y) % 10;
+  if (lastDigit === 1 || lastDigit === 6) return codes[0];
+  if (lastDigit === 2 || lastDigit === 7) return codes[1];
+  if (lastDigit === 3 || lastDigit === 8) return codes[2];
+  if (lastDigit === 4 || lastDigit === 9) return codes[3];
+  if (lastDigit === 5 || lastDigit === 0) return codes[4];
+  return codes[0];
+}
+
+// ==========================================================================
+// 2. LÓGICA DE INTERFACE E NAVEGAÇÃO DA APLICAÇÃO
+// ==========================================================================
+
 let currentTab = 'dashboard';
 let selectedApiaryFilter = 'all';
 let selectedStatusFilter = 'all';
 
-// Inicializar quando o DOM estiver pronto
 document.addEventListener('DOMContentLoaded', () => {
   ApisStorage.init();
   setupNavigation();
@@ -20,7 +369,6 @@ document.addEventListener('DOMContentLoaded', () => {
   renderApp();
 });
 
-// Configuração da Navegação de Abas
 function setupNavigation() {
   const navButtons = document.querySelectorAll('.nav-item button');
   navButtons.forEach(btn => {
@@ -36,7 +384,6 @@ function setupNavigation() {
   });
 }
 
-// Configuração dos Event Listeners globais
 function setupEventListeners() {
   const modalBackdrop = document.getElementById('modal-backdrop');
   if (modalBackdrop) {
@@ -94,7 +441,6 @@ function setupEventListeners() {
 
 function setupNetworkListeners() {
   window.addEventListener('online', () => {
-    console.log('[ApisApp] Dispositivo conectado à internet. Verificando backup diário...');
     ApisStorage.checkAutoBackup();
     checkAutoBackupBanner();
   });
@@ -114,7 +460,6 @@ function checkAutoBackupBanner() {
   }
 }
 
-// Renderização Principal conforme Aba Selecionada
 function renderApp() {
   const mainContent = document.getElementById('main-view');
   if (!mainContent) return;
@@ -170,20 +515,25 @@ function renderApp() {
    ========================================================================== */
 function renderQueensView(data) {
   const colorCodes = ApisStorage.getQueenColorCodes();
+  const queensList = data.queens || [];
 
   return `
     <div class="glass-panel">
       <div class="section-header">
         <div>
           <h2 class="section-title">👑 Gestão & Edição de Rainhas</h2>
-          <p style="color:var(--slate-400); font-size:0.9rem;">Controle individual da postura, origem e personalização das cores de marcação no tórax.</p>
+          <p style="color:var(--slate-400); font-size:0.9rem;">Cadastre novas rainhas, edite o ano/cor de marcação e altere a postura a qualquer momento.</p>
         </div>
-        <button class="btn btn-secondary" id="btn-customize-colors">
-          ⚙️ Personalizar Tabela de Cores
-        </button>
+        <div style="display:flex; gap:0.75rem;">
+          <button class="btn btn-secondary" id="btn-customize-colors">
+            ⚙️ Personalizar Tabela de Cores
+          </button>
+          <button class="btn btn-primary" id="btn-add-queen">
+            + Cadastrar Nova Rainha
+          </button>
+        </div>
       </div>
 
-      <!-- Legenda Oficial das Cores de Rainhas -->
       <div style="background:rgba(15,23,42,0.6); padding:1.25rem; border-radius:var(--radius-lg); border:1px solid var(--slate-700); margin-bottom:1.5rem;">
         <h3 style="font-size:1rem; color:var(--honey-400); margin-bottom:0.75rem;">🎨 Tabela de Marcação por Ano de Nascimento</h3>
         <div style="display:grid; grid-template-columns: repeat(auto-fit, minmax(180px, 1fr)); gap:0.75rem;">
@@ -195,21 +545,21 @@ function renderQueensView(data) {
         </div>
       </div>
 
-      <!-- Tabela / Cards de Rainhas Cadastradas -->
       <div class="table-responsive">
-        ${data.hives.length === 0 ? `
+        ${queensList.length === 0 && data.hives.length === 0 ? `
           <div style="text-align:center; padding:3rem; color:var(--slate-400);">
             <div style="font-size:2.5rem; margin-bottom:0.5rem;">👑</div>
-            <strong style="color:#fff;">Nenhuma colmeia ou rainha cadastrada ainda.</strong>
-            <p style="font-size:0.85rem; margin-top:0.25rem;">Cadastre uma colmeia para gerenciar sua rainha!</p>
+            <strong style="color:#fff;">Nenhuma rainha cadastrada ainda.</strong>
+            <p style="font-size:0.85rem; margin-top:0.25rem;">Clique no botão acima <strong>"+ Cadastrar Nova Rainha"</strong> para incluir sua primeira rainha com ano e cor!</p>
           </div>
         ` : `
           <table class="data-table">
             <thead>
               <tr>
+                <th>Rainha / Identificação</th>
                 <th>Colmeia / Apiário</th>
-                <th>Ano & Cor da Rainha</th>
-                <th>Marcação</th>
+                <th>Ano & Cor da Marcação</th>
+                <th>Status da Marcação</th>
                 <th>Linhagem / Origem</th>
                 <th>Qualidade da Postura</th>
                 <th>Idade (Meses)</th>
@@ -217,40 +567,48 @@ function renderQueensView(data) {
               </tr>
             </thead>
             <tbody>
-              ${data.hives.map(hive => {
-                const apiary = data.apiaries.find(a => a.id === hive.apiaryId);
-                const q = hive.queen || {};
-                const qColor = getQueenColorForYear(q.year || 2026);
-                const activeColor = q.color || qColor.color;
+              ${queensList.map(queen => {
+                const hive = data.hives.find(h => h.id === queen.hiveId);
+                const apiary = data.apiaries.find(a => a.id === (queen.apiaryId || (hive ? hive.apiaryId : null)));
+                const qColor = getQueenColorForYear(queen.year || 2026);
+                const activeColor = queen.color || qColor.color;
                 const activeText = qColor.textColor;
 
                 return `
                   <tr>
                     <td>
-                      <strong>${hive.code}</strong> (${hive.name})<br>
-                      <small style="color:var(--honey-400);">${apiary ? apiary.name : 'Sem Apiário'}</small>
+                      <strong>${queen.name || 'Rainha Matriz'}</strong>
+                    </td>
+                    <td>
+                      ${hive ? `<strong>${hive.code}</strong> (${hive.name})` : '<span style="color:var(--honey-400);">Estoque / Banco de Rainhas</span>'}<br>
+                      <small style="color:var(--slate-400);">${apiary ? apiary.name : ''}</small>
                     </td>
                     <td>
                       <span class="queen-badge" style="background:${activeColor}; color:${activeText}; padding:0.35rem 0.75rem; border-radius:16px;">
-                        👑 ${q.year || 2026}
+                        👑 Ano ${queen.year || 2026}
                       </span>
                     </td>
                     <td>
-                      ${q.marked !== false 
+                      ${queen.marked !== false 
                         ? '<span style="color:var(--emerald-500); font-weight:700;">✅ Marcada no Tórax</span>' 
                         : '<span style="color:var(--rose-500); font-weight:700;">❌ Sem Marcação</span>'}
                     </td>
-                    <td><strong>${q.origin || 'Matriz Selecionada'}</strong></td>
+                    <td><strong>${queen.origin || 'Matriz Selecionada'}</strong></td>
                     <td>
                       <span class="tag-badge" style="background:rgba(245,158,11,0.15); color:var(--honey-400);">
-                        ${q.postureStatus || 'Boa postura'}
+                        ${queen.postureStatus || 'Boa postura'}
                       </span>
                     </td>
-                    <td>${q.ageMonths || 6} meses</td>
+                    <td>${queen.ageMonths || 6} meses</td>
                     <td>
-                      <button class="btn btn-primary btn-edit-queen" data-id="${hive.id}" style="padding:0.35rem 0.75rem; font-size:0.8rem;">
-                        ✏️ Editar Rainha
-                      </button>
+                      <div style="display:flex; gap:0.4rem;">
+                        <button class="btn btn-primary btn-edit-queen-item" data-id="${queen.id}" style="padding:0.35rem 0.65rem; font-size:0.75rem;">
+                          ✏️ Editar
+                        </button>
+                        <button class="btn btn-danger btn-delete-queen-item" data-id="${queen.id}" style="padding:0.35rem 0.55rem; font-size:0.75rem;">
+                          🗑️
+                        </button>
+                      </div>
                     </td>
                   </tr>
                 `;
@@ -268,42 +626,66 @@ function bindQueensEvents(data) {
     openCustomizeColorsModal();
   });
 
-  document.querySelectorAll('.btn-edit-queen').forEach(btn => {
+  document.getElementById('btn-add-queen')?.addEventListener('click', () => {
+    openEditQueenModal(null, data);
+  });
+
+  document.querySelectorAll('.btn-edit-queen-item').forEach(btn => {
     btn.addEventListener('click', () => {
-      const hiveId = btn.getAttribute('data-id');
-      const hive = data.hives.find(h => h.id === hiveId);
-      if (hive) openEditQueenModal(hive);
+      const queenId = btn.getAttribute('data-id');
+      const queen = data.queens.find(q => q.id === queenId);
+      if (queen) openEditQueenModal(queen, data);
+    });
+  });
+
+  document.querySelectorAll('.btn-delete-queen-item').forEach(btn => {
+    btn.addEventListener('click', () => {
+      const queenId = btn.getAttribute('data-id');
+      if (confirm('Tem certeza que deseja excluir o cadastro desta rainha?')) {
+        ApisStorage.deleteQueen(queenId);
+        renderApp();
+      }
     });
   });
 }
 
-// Modal para Editar Dados da Rainha
-function openEditQueenModal(hive) {
-  const q = hive.queen || {};
+function openEditQueenModal(existingQueen = null, data = ApisStorage.getAll()) {
+  const isEdit = !!existingQueen;
+  const q = existingQueen || {};
+  const hives = data.hives || [];
+  const defaultYear = q.year || 2026;
+  const defaultColorObj = getQueenColorForYear(defaultYear);
+  const defaultColorHex = q.color || defaultColorObj.color;
+
   const html = `
     <form id="form-edit-queen" class="form-grid">
       <div class="form-group">
-        <label>Colmeia:</label>
-        <input type="text" class="form-control" value="${hive.code} - ${hive.name}" disabled style="opacity:0.7;">
+        <label>Nome / Código da Rainha:</label>
+        <input type="text" id="eq-name" class="form-control" value="${q.name || 'Rainha Matriz ' + (data.queens.length + 1)}" required>
       </div>
 
       <div class="form-group">
-        <label>Ano de Nascimento da Rainha:</label>
-        <select id="eq-year" class="form-control">
-          <option value="2026" ${q.year == 2026 ? 'selected' : ''}>2026 (Branco)</option>
-          <option value="2025" ${q.year == 2025 ? 'selected' : ''}>2025 (Azul)</option>
-          <option value="2024" ${q.year == 2024 ? 'selected' : ''}>2024 (Verde)</option>
-          <option value="2023" ${q.year == 2023 ? 'selected' : ''}>2023 (Vermelho)</option>
-          <option value="2022" ${q.year == 2022 ? 'selected' : ''}>2022 (Amarelo)</option>
-          <option value="2021" ${q.year == 2021 ? 'selected' : ''}>2021 (Branco)</option>
+        <label>Colmeia Associada:</label>
+        <select id="eq-hiveId" class="form-control">
+          <option value="">Banco de Rainhas (Sem Colmeia)</option>
+          ${hives.map(h => `
+            <option value="${h.id}" ${q.hiveId === h.id ? 'selected' : ''}>
+              ${h.code} - ${h.name}
+            </option>
+          `).join('')}
         </select>
       </div>
 
       <div class="form-group">
-        <label>Cor de Marcação (Personalizada):</label>
+        <label>Ano de Nascimento (Qualquer Ano):</label>
+        <input type="number" id="eq-year" class="form-control" value="${defaultYear}" min="2010" max="2040" required>
+      </div>
+
+      <div class="form-group">
+        <label>Cor da Marcação:</label>
         <div style="display:flex; gap:0.5rem; align-items:center;">
-          <input type="color" id="eq-color-picker" value="${q.color || '#FFFFFF'}" style="width:45px; height:38px; border:none; border-radius:6px; cursor:pointer;">
-          <input type="text" id="eq-color-hex" class="form-control" value="${q.color || '#FFFFFF'}" placeholder="#FFFFFF" style="flex:1;">
+          <input type="color" id="eq-color-picker" value="${defaultColorHex}" style="width:45px; height:38px; border:none; border-radius:6px; cursor:pointer;">
+          <input type="text" id="eq-color-hex" class="form-control" value="${defaultColorHex}" placeholder="#FFFFFF" style="flex:1;">
         </div>
       </div>
 
@@ -317,7 +699,7 @@ function openEditQueenModal(hive) {
 
       <div class="form-group">
         <label>Origem / Linhagem:</label>
-        <input type="text" id="eq-origin" class="form-control" value="${q.origin || 'Matriz Selecionada'}" placeholder="Ex: Matriz Selecionada Cárnica x Africanizada">
+        <input type="text" id="eq-origin" class="form-control" value="${q.origin || 'Matriz Selecionada Cárnica x Africanizada'}" placeholder="Ex: Matriz Selecionada">
       </div>
 
       <div class="form-group">
@@ -326,28 +708,39 @@ function openEditQueenModal(hive) {
           <option value="Excelente (Cria uniforme de canto a canto)" ${q.postureStatus && q.postureStatus.includes('Excelente') ? 'selected' : ''}>Excelente (Cria uniforme de canto a canto)</option>
           <option value="Boa postura" ${q.postureStatus && q.postureStatus.includes('Boa') ? 'selected' : ''}>Boa postura</option>
           <option value="Regular" ${q.postureStatus && q.postureStatus.includes('Regular') ? 'selected' : ''}>Regular</option>
-          <option value="Falhada / Postura Irregular" ${q.postureStatus && q.postureStatus.includes('Falhada') ? 'selected' : ''}>Falhada / Postura Irregular (Troca recomendada)</option>
+          <option value="Falhada / Postura Irregular" ${q.postureStatus && q.postureStatus.includes('Falhada') ? 'selected' : ''}>Falhada / Postura Irregular</option>
           <option value="Ausente / Sem Rainha" ${q.postureStatus && q.postureStatus.includes('Ausente') ? 'selected' : ''}>Ausente / Sem Rainha</option>
         </select>
       </div>
 
       <div class="form-group">
         <label>Idade Estimada (Meses):</label>
-        <input type="number" id="eq-age" class="form-control" min="1" max="48" value="${q.ageMonths || 6}">
+        <input type="number" id="eq-age" class="form-control" min="1" max="60" value="${q.ageMonths || 6}">
       </div>
 
       <div style="grid-column: 1 / -1; display:flex; justify-content:flex-end; gap:0.75rem; margin-top:1rem;">
         <button type="button" class="btn btn-secondary" onclick="document.getElementById('modal-backdrop').classList.remove('active')">Cancelar</button>
-        <button type="submit" class="btn btn-primary">Salvar Alterações da Rainha</button>
+        <button type="submit" class="btn btn-primary">${isEdit ? 'Salvar Alterações' : 'Cadastrar Rainha'}</button>
       </div>
     </form>
   `;
 
-  openModal(`👑 Editar Rainha - Colmeia ${hive.code}`, html);
+  openModal(isEdit ? `👑 Editar Rainha: ${q.name || ''}` : '👑 Cadastrar Nova Rainha', html);
 
+  const yearInput = document.getElementById('eq-year');
   const colorPicker = document.getElementById('eq-color-picker');
   const colorHex = document.getElementById('eq-color-hex');
-  if (colorPicker && colorHex) {
+
+  if (yearInput && colorPicker && colorHex) {
+    yearInput.addEventListener('input', (e) => {
+      const y = parseInt(e.target.value, 10);
+      if (!isNaN(y)) {
+        const autoColor = getQueenColorForYear(y);
+        colorPicker.value = autoColor.color;
+        colorHex.value = autoColor.color;
+      }
+    });
+
     colorPicker.addEventListener('input', (e) => colorHex.value = e.target.value.toUpperCase());
     colorHex.addEventListener('input', (e) => colorPicker.value = e.target.value);
   }
@@ -358,6 +751,9 @@ function openEditQueenModal(hive) {
     const color = document.getElementById('eq-color-hex').value;
 
     const queenData = {
+      id: isEdit ? existingQueen.id : undefined,
+      name: document.getElementById('eq-name').value,
+      hiveId: document.getElementById('eq-hiveId').value || null,
       year: year,
       color: color,
       marked: document.getElementById('eq-marked').value === 'true',
@@ -366,13 +762,12 @@ function openEditQueenModal(hive) {
       ageMonths: parseInt(document.getElementById('eq-age').value, 10) || 6
     };
 
-    ApisStorage.saveHiveQueen(hive.id, queenData);
+    ApisStorage.saveQueen(queenData);
     closeModal();
     renderApp();
   });
 }
 
-// Modal para Personalizar Tabela de Cores
 function openCustomizeColorsModal() {
   const currentCodes = ApisStorage.getQueenColorCodes();
 
@@ -438,9 +833,6 @@ function openCustomizeColorsModal() {
   });
 }
 
-/* ==========================================================================
-   1. DASHBOARD VIEW (Painel Geral)
-   ========================================================================== */
 function renderDashboardView(data) {
   const totalHives = data.hives.length;
   const activeHives = data.hives.filter(h => h.status === 'Ativa').length;
@@ -461,7 +853,6 @@ function renderDashboardView(data) {
     : { label: 'Cuidado (Vento/Frio)', color: 'var(--rose-500)', icon: '🌧️' };
 
   return `
-    <!-- Hero Banner -->
     <div class="hero-card">
       <div class="hero-text">
         <h2>Gestão Inteligente de <span>Apicultura</span></h2>
@@ -478,7 +869,6 @@ function renderDashboardView(data) {
       </div>
     </div>
 
-    <!-- Cards de KPIs -->
     <div class="stats-grid">
       <div class="stat-card">
         <div class="stat-header">
@@ -521,7 +911,6 @@ function renderDashboardView(data) {
       </div>
     </div>
 
-    <!-- Resumo de Colmeias e Ações -->
     <div style="display:grid; grid-template-columns: 2fr 1fr; gap:1.5rem; align-items:start;">
       <div class="glass-panel">
         <div class="section-header">
@@ -583,15 +972,14 @@ function renderDashboardView(data) {
         </div>
       </div>
 
-      <!-- Lembretes & Alertas -->
       <div class="glass-panel">
         <h3 class="section-title" style="margin-bottom:1rem;">🔔 Painel de Controle</h3>
         
         <div style="display:flex; flex-direction:column; gap:1rem;">
           <div style="background:rgba(245,158,11,0.1); border-left:4px solid var(--honey-400); padding:0.85rem; border-radius:8px;">
-            <strong style="color:var(--honey-400); font-size:0.85rem;">👑 EDIÇÃO DE RAINHAS E CORES</strong>
+            <strong style="color:var(--honey-400); font-size:0.85rem;">👑 CADASTRO LIBERADO DE RAINHAS</strong>
             <p style="font-size:0.8rem; color:var(--slate-200); margin-top:0.25rem;">
-              Agora você pode alterar o ano, linhagem e personalizar a cor de marcação de cada rainha na aba <strong>Rainhas & Cores</strong>!
+              Agora você pode cadastrar novas rainhas diretamente na aba <strong>Rainhas & Cores</strong> com qualquer ano e cor livre!
             </p>
           </div>
 
@@ -622,9 +1010,6 @@ function bindDashboardEvents(data) {
   });
 }
 
-/* ==========================================================================
-   2. APIARIES & HIVES VIEW (Apiários e Colmeias)
-   ========================================================================== */
 function renderApiariesView(data) {
   const filteredHives = data.hives.filter(hive => {
     const matchApiary = selectedApiaryFilter === 'all' || hive.apiaryId === selectedApiaryFilter;
@@ -807,9 +1192,6 @@ function bindApiariesEvents(data) {
   });
 }
 
-/* ==========================================================================
-   3. INSPECTIONS VIEW (Inspeções de Campo)
-   ========================================================================== */
 function renderInspectionsView(data) {
   return `
     <div class="glass-panel">
@@ -898,9 +1280,6 @@ function bindInspectionsEvents(data) {
   });
 }
 
-/* ==========================================================================
-   4. HARVEST VIEW (Controle de Colheita)
-   ========================================================================== */
 function renderHarvestView(data) {
   const totalValue = data.harvests.reduce((acc, h) => {
     return acc + ((parseFloat(h.quantityKg) || 0) * (parseFloat(h.unitPriceBrl) || 0));
@@ -1009,9 +1388,6 @@ function bindHarvestEvents(data) {
   });
 }
 
-/* ==========================================================================
-   5. CALENDAR VIEW (Calendário Floral & Sanidade)
-   ========================================================================== */
 function renderCalendarView() {
   const months = [
     { name: 'Janeiro', season: 'Verão', activity: 'Manutenção de Melgueiras & Colheita da Florada de Verão', flora: 'Eucalipto, Silvestre' },
@@ -1057,9 +1433,6 @@ function renderCalendarView() {
   `;
 }
 
-/* ==========================================================================
-   6. ANALYTICS VIEW (Relatórios & Gráficos)
-   ========================================================================== */
 function renderAnalyticsView(data) {
   const totalHoney = data.harvests.filter(h => h.product === 'Mel').reduce((a, b) => a + (parseFloat(b.quantityKg) || 0), 0);
   const totalPropolis = data.harvests.filter(h => h.product.includes('Própolis')).reduce((a, b) => a + (parseFloat(b.quantityKg) || 0), 0);
@@ -1089,13 +1462,13 @@ function renderAnalyticsView(data) {
           <h3 style="color:var(--honey-400); margin-bottom:1rem; font-size:1.1rem;">👑 Idade do Enxame (Ano da Rainha)</h3>
           <div style="display:flex; flex-direction:column; gap:0.75rem;">
             ${QUEEN_COLOR_CODES.map(qc => {
-              const count = data.hives.filter(h => qc.years.includes(parseInt(h.queen.year, 10))).length;
+              const count = data.queens.filter(q => qc.years.includes(parseInt(q.year, 10))).length;
               return `
                 <div style="display:flex; align-items:center; justify-content:space-between;">
                   <span class="queen-badge" style="background:${qc.color}; color:${qc.textColor};">
                     ${qc.label}
                   </span>
-                  <strong>${count} colmeias</strong>
+                  <strong>${count} rainhas</strong>
                 </div>
               `;
             }).join('')}
@@ -1106,9 +1479,6 @@ function renderAnalyticsView(data) {
   `;
 }
 
-/* ==========================================================================
-   7. GUIDE VIEW (Guia Técnico Apis mellifera)
-   ========================================================================== */
 function renderGuideView() {
   return `
     <div class="glass-panel">
@@ -1156,9 +1526,6 @@ function renderGuideView() {
   `;
 }
 
-/* ==========================================================================
-   MODAIS AUXILIARES
-   ========================================================================== */
 function closeModal() {
   const modalBackdrop = document.getElementById('modal-backdrop');
   if (modalBackdrop) modalBackdrop.classList.remove('active');
@@ -1187,344 +1554,4 @@ function openModal(title, contentHtml) {
 
   modalBackdrop.classList.add('active');
   document.getElementById('modal-close-x')?.addEventListener('click', closeModal);
-}
-
-// Modal Apiário
-function openApiaryModal() {
-  const html = `
-    <form id="form-apiary" class="form-grid">
-      <div class="form-group full-width">
-        <label>Nome do Apiário:</label>
-        <input type="text" id="apiary-name" class="form-control" placeholder="Ex: Apiário Sol Nascente" required>
-      </div>
-      <div class="form-group full-width">
-        <label>Localização / Fazenda:</label>
-        <input type="text" id="apiary-location" class="form-control" placeholder="Ex: Sítio Vista Alegre - Zona Rural">
-      </div>
-      <div class="form-group full-width">
-        <label>Florada Predominante:</label>
-        <input type="text" id="apiary-flora" class="form-control" placeholder="Ex: Eucalipto, Laranjeira, Vassourinha">
-      </div>
-      <div class="form-group full-width">
-        <label>Observações:</label>
-        <textarea id="apiary-notes" class="form-control"></textarea>
-      </div>
-      <div style="grid-column: 1 / -1; display:flex; justify-content:flex-end; gap:0.75rem; margin-top:1rem;">
-        <button type="button" class="btn btn-secondary" onclick="document.getElementById('modal-backdrop').classList.remove('active')">Cancelar</button>
-        <button type="submit" class="btn btn-primary">Salvar Apiário</button>
-      </div>
-    </form>
-  `;
-
-  openModal('🏕️ Novo Apiário', html);
-
-  document.getElementById('form-apiary').addEventListener('submit', (e) => {
-    e.preventDefault();
-    const newApiary = {
-      name: document.getElementById('apiary-name').value,
-      location: document.getElementById('apiary-location').value,
-      flora: document.getElementById('apiary-flora').value,
-      notes: document.getElementById('apiary-notes').value
-    };
-    ApisStorage.saveApiary(newApiary);
-    closeModal();
-    renderApp();
-  });
-}
-
-// Modal Colmeia
-function openHiveModal(data, existingHive = null) {
-  const isEdit = !!existingHive;
-  const html = `
-    <form id="form-hive" class="form-grid">
-      <div class="form-group">
-        <label>Apiário:</label>
-        <select id="hive-apiaryId" class="form-control" required>
-          ${data.apiaries.map(a => `
-            <option value="${a.id}" ${existingHive && existingHive.apiaryId === a.id ? 'selected' : ''}>
-              ${a.name}
-            </option>
-          `).join('')}
-        </select>
-      </div>
-
-      <div class="form-group">
-        <label>Código da Colmeia:</label>
-        <input type="text" id="hive-code" class="form-control" value="${existingHive ? existingHive.code : 'COL-0' + (data.hives.length + 1)}" required>
-      </div>
-
-      <div class="form-group">
-        <label>Nome / Identificação:</label>
-        <input type="text" id="hive-name" class="form-control" value="${existingHive ? existingHive.name : 'Colmeia ' + (data.hives.length + 1)}" required>
-      </div>
-
-      <div class="form-group">
-        <label>Modelo da Caixa:</label>
-        <select id="hive-type" class="form-control">
-          <option value="Langstroth Standard">Langstroth Standard</option>
-          <option value="Dadant">Dadant</option>
-          <option value="Top Bar">Top Bar (Kenyana)</option>
-        </select>
-      </div>
-
-      <div class="form-group">
-        <label>Ano da Rainha (Cor Oficial):</label>
-        <select id="hive-queen-year" class="form-control">
-          <option value="2026" ${existingHive && existingHive.queen.year == 2026 ? 'selected' : ''}>2026 (Branco)</option>
-          <option value="2025" ${existingHive && existingHive.queen.year == 2025 ? 'selected' : ''}>2025 (Azul)</option>
-          <option value="2024" ${existingHive && existingHive.queen.year == 2024 ? 'selected' : ''}>2024 (Verde)</option>
-          <option value="2023" ${existingHive && existingHive.queen.year == 2023 ? 'selected' : ''}>2023 (Vermelho)</option>
-          <option value="2022" ${existingHive && existingHive.queen.year == 2022 ? 'selected' : ''}>2022 (Amarelo)</option>
-        </select>
-      </div>
-
-      <div class="form-group">
-        <label>Origem da Rainha:</label>
-        <input type="text" id="hive-queen-origin" class="form-control" value="${existingHive ? existingHive.queen.origin : 'Matriz Selecionada'}" placeholder="Ex: Matriz Selecionada">
-      </div>
-
-      <div class="form-group">
-        <label>Quadros com Ninho (1 a 10):</label>
-        <input type="number" id="hive-framesBrood" class="form-control" min="1" max="10" value="${existingHive ? existingHive.framesBrood : 8}">
-      </div>
-
-      <div class="form-group">
-        <label>Melgueiras (Superes):</label>
-        <input type="number" id="hive-supersCount" class="form-control" min="0" max="10" value="${existingHive ? existingHive.supersCount : 1}">
-      </div>
-
-      <div class="form-group">
-        <label>Status:</label>
-        <select id="hive-status" class="form-control">
-          <option value="Ativa" ${existingHive && existingHive.status === 'Ativa' ? 'selected' : ''}>Ativa</option>
-          <option value="Atenção" ${existingHive && existingHive.status === 'Atenção' ? 'selected' : ''}>Atenção (Necessita Intervenção)</option>
-        </select>
-      </div>
-
-      <div class="form-group">
-        <label>Saúde Estimada (%):</label>
-        <input type="number" id="hive-healthScore" class="form-control" min="0" max="100" value="${existingHive ? existingHive.healthScore : 90}">
-      </div>
-
-      <div style="grid-column: 1 / -1; display:flex; justify-content:flex-end; gap:0.75rem; margin-top:1rem;">
-        <button type="button" class="btn btn-secondary" onclick="document.getElementById('modal-backdrop').classList.remove('active')">Cancelar</button>
-        <button type="submit" class="btn btn-primary">Salvar Colmeia</button>
-      </div>
-    </form>
-  `;
-
-  openModal(isEdit ? '✏️ Editar Colmeia' : '📦 Nova Colmeia Apis', html);
-
-  document.getElementById('form-hive').addEventListener('submit', (e) => {
-    e.preventDefault();
-    const year = parseInt(document.getElementById('hive-queen-year').value, 10);
-    const queenColor = getQueenColorForYear(year);
-
-    const hiveData = {
-      id: existingHive ? existingHive.id : undefined,
-      apiaryId: document.getElementById('hive-apiaryId').value,
-      code: document.getElementById('hive-code').value,
-      name: document.getElementById('hive-name').value,
-      type: document.getElementById('hive-type').value,
-      origin: existingHive ? existingHive.origin : 'Divisão de Enxame',
-      temperament: existingHive ? existingHive.temperament : 4,
-      healthScore: parseInt(document.getElementById('hive-healthScore').value, 10),
-      framesBrood: parseInt(document.getElementById('hive-framesBrood').value, 10),
-      framesHoney: existingHive ? existingHive.framesHoney : 4,
-      supersCount: parseInt(document.getElementById('hive-supersCount').value, 10),
-      queen: {
-        marked: true,
-        year: year,
-        color: queenColor.color,
-        colorName: queenColor.label,
-        origin: document.getElementById('hive-queen-origin').value,
-        postureStatus: existingHive ? existingHive.queen.postureStatus : 'Boa postura',
-        ageMonths: existingHive ? existingHive.queen.ageMonths : 6
-      },
-      status: document.getElementById('hive-status').value,
-      notes: existingHive ? existingHive.notes : 'Cadastrada no aplicativo.'
-    };
-
-    ApisStorage.saveHive(hiveData);
-    closeModal();
-    renderApp();
-  });
-}
-
-// Modal Inspeção
-function openInspectionModal(data) {
-  const html = `
-    <form id="form-inspection" class="form-grid">
-      <div class="form-group">
-        <label>Colmeia:</label>
-        <select id="insp-hiveId" class="form-control" required>
-          ${data.hives.map(h => `<option value="${h.id}">${h.code} - ${h.name}</option>`).join('')}
-        </select>
-      </div>
-
-      <div class="form-group">
-        <label>Data da Inspeção:</label>
-        <input type="date" id="insp-date" class="form-control" value="${new Date().toISOString().split('T')[0]}" required>
-      </div>
-
-      <div class="form-group">
-        <label>Inspetor / Apicultor:</label>
-        <input type="text" id="insp-inspector" class="form-control" value="Apicultor Principal" required>
-      </div>
-
-      <div class="form-group">
-        <label>Reservas de Alimento:</label>
-        <select id="insp-food" class="form-control">
-          <option value="Alto">Alto (Fartura de Mel e Pólen)</option>
-          <option value="Médio">Médio (Suficiente)</option>
-          <option value="Baixo">Baixo (Alimentação Necessária)</option>
-        </select>
-      </div>
-
-      <div class="form-group full-width">
-        <label>Checklist do Ninho:</label>
-        <div style="display:grid; grid-template-columns: 1fr 1fr; gap:0.5rem; margin-top:0.5rem;">
-          <label class="checkbox-group">
-            <input type="checkbox" id="chk-queen" checked> Rainha Vista
-          </label>
-          <label class="checkbox-group">
-            <input type="checkbox" id="chk-eggs" checked> Ovos e Larvas Presentes
-          </label>
-          <label class="checkbox-group">
-            <input type="checkbox" id="chk-capped" checked> Cria Operculada Saudável
-          </label>
-          <label class="checkbox-group">
-            <input type="checkbox" id="chk-cells"> Presença de Realeiras (Enxameação)
-          </label>
-        </div>
-      </div>
-
-      <div class="form-group full-width">
-        <label>Observações / Diagnóstico de Pragas:</label>
-        <input type="text" id="insp-pests" class="form-control" value="Nenhuma praga visível" placeholder="Ex: Ausência de Varroa, favos limpos">
-      </div>
-
-      <div class="form-group full-width">
-        <label>Ações Executadas:</label>
-        <input type="text" id="insp-actions" class="form-control" value="Limpeza de estrado; Adição de melgueira" placeholder="Separe por vírgula">
-      </div>
-
-      <div style="grid-column: 1 / -1; display:flex; justify-content:flex-end; gap:0.75rem; margin-top:1rem;">
-        <button type="button" class="btn btn-secondary" onclick="document.getElementById('modal-backdrop').classList.remove('active')">Cancelar</button>
-        <button type="submit" class="btn btn-primary">Salvar Inspeção</button>
-      </div>
-    </form>
-  `;
-
-  openModal('📋 Nova Inspeção de Campo', html);
-
-  document.getElementById('form-inspection').addEventListener('submit', (e) => {
-    e.preventDefault();
-    const actionsRaw = document.getElementById('insp-actions').value;
-    const actionsTaken = actionsRaw.split(';').map(s => s.trim()).filter(Boolean);
-
-    const inspection = {
-      hiveId: document.getElementById('insp-hiveId').value,
-      date: document.getElementById('insp-date').value,
-      inspector: document.getElementById('insp-inspector').value,
-      queenSpotted: document.getElementById('chk-queen').checked,
-      eggsPresent: document.getElementById('chk-eggs').checked,
-      larvaePresent: document.getElementById('chk-eggs').checked,
-      cappedBrood: document.getElementById('chk-capped').checked,
-      queenCellsSpotted: document.getElementById('chk-cells').checked,
-      foodReserves: document.getElementById('insp-food').value,
-      pestsFound: document.getElementById('insp-pests').value,
-      actionsTaken: actionsTaken,
-      notes: 'Inspeção efetuada com sucesso.'
-    };
-
-    ApisStorage.saveInspection(inspection);
-    closeModal();
-    renderApp();
-  });
-}
-
-// Modal Colheita
-function openHarvestModal(data) {
-  const html = `
-    <form id="form-harvest" class="form-grid">
-      <div class="form-group">
-        <label>Apiário Origem:</label>
-        <select id="harv-apiaryId" class="form-control" required>
-          ${data.apiaries.map(a => `<option value="${a.id}">${a.name}</option>`).join('')}
-        </select>
-      </div>
-
-      <div class="form-group">
-        <label>Colmeia (Opcional):</label>
-        <select id="harv-hiveId" class="form-control">
-          <option value="">Todo o Apiário</option>
-          ${data.hives.map(h => `<option value="${h.id}">${h.code} - ${h.name}</option>`).join('')}
-        </select>
-      </div>
-
-      <div class="form-group">
-        <label>Produto Extraído:</label>
-        <select id="harv-product" class="form-control">
-          <option value="Mel">Mel</option>
-          <option value="Própolis Verde">Própolis Verde</option>
-          <option value="Geleia Real">Geleia Real</option>
-          <option value="Cera Alveolada / Bruta">Cera Alveolada / Bruta</option>
-          <option value="Pólen Apícola">Pólen Apícola</option>
-        </select>
-      </div>
-
-      <div class="form-group">
-        <label>Quantidade (kg):</label>
-        <input type="number" step="0.1" id="harv-quantity" class="form-control" value="15.0" required>
-      </div>
-
-      <div class="form-group">
-        <label>Florada Predominante:</label>
-        <input type="text" id="harv-floral" class="form-control" placeholder="Ex: Eucalipto, Laranjeira" required>
-      </div>
-
-      <div class="form-group">
-        <label>Nº do Lote:</label>
-        <input type="text" id="harv-batch" class="form-control" value="LOTE-${new Date().getFullYear()}-0${data.harvests.length + 1}" required>
-      </div>
-
-      <div class="form-group">
-        <label>Umidade do Mel (%):</label>
-        <input type="number" step="0.1" id="harv-moisture" class="form-control" value="17.5">
-      </div>
-
-      <div class="form-group">
-        <label>Preço Unitário (R$ / kg):</label>
-        <input type="number" step="0.5" id="harv-price" class="form-control" value="35.00">
-      </div>
-
-      <div style="grid-column: 1 / -1; display:flex; justify-content:flex-end; gap:0.75rem; margin-top:1rem;">
-        <button type="button" class="btn btn-secondary" onclick="document.getElementById('modal-backdrop').classList.remove('active')">Cancelar</button>
-        <button type="submit" class="btn btn-primary">Salvar Colheita</button>
-      </div>
-    </form>
-  `;
-
-  openModal('🍯 Nova Colheita Apícola', html);
-
-  document.getElementById('form-harvest').addEventListener('submit', (e) => {
-    e.preventDefault();
-    const harvest = {
-      apiaryId: document.getElementById('harv-apiaryId').value,
-      hiveId: document.getElementById('harv-hiveId').value || 'Apiário Geral',
-      date: new Date().toISOString().split('T')[0],
-      product: document.getElementById('harv-product').value,
-      quantityKg: parseFloat(document.getElementById('harv-quantity').value),
-      moisturePct: parseFloat(document.getElementById('harv-moisture').value) || 0,
-      floralSource: document.getElementById('harv-floral').value,
-      batchNumber: document.getElementById('harv-batch').value,
-      unitPriceBrl: parseFloat(document.getElementById('harv-price').value) || 0,
-      notes: 'Colheita registrada via app.'
-    };
-
-    ApisStorage.saveHarvest(harvest);
-    closeModal();
-    renderApp();
-  });
 }

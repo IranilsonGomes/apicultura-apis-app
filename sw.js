@@ -1,5 +1,5 @@
 // Versionamento do Aplicativo ApisApp Pro
-const CACHE_NAME = 'apisapp-v1.0.3';
+const CACHE_NAME = 'apisapp-v1.0.4';
 
 const ASSETS_TO_CACHE = [
   './',
