@@ -10,22 +10,70 @@
   <meta name="theme-color" content="#f59e0b">
   <link rel="icon" type="image/png" href="./assets/icon.png">
   <script>
+    // Registro e Verificação de Atualização Automática
     if ('serviceWorker' in navigator) {
       window.addEventListener('load', () => {
-        navigator.serviceWorker.register('./sw.js').catch(err => console.log('SW registration error:', err));
+        navigator.serviceWorker.register('./sw.js').then((registration) => {
+          console.log('[ApisApp] Service Worker registrado. Verificando atualizações...');
+
+          // Verificação imediata ao abrir o aplicativo
+          registration.update();
+
+          // Verificar atualizações quando a tela do celular for reativada (foco)
+          document.addEventListener('visibilitychange', () => {
+            if (document.visibilityState === 'visible') {
+              registration.update();
+            }
+          });
+
+          // Detectar quando uma nova versão for encontrada
+          registration.addEventListener('updatefound', () => {
+            const newWorker = registration.installing;
+            console.log('[ApisApp] Nova versão encontrada, baixando...');
+
+            newWorker.addEventListener('statechange', () => {
+              if (newWorker.state === 'installed' && navigator.serviceWorker.controller) {
+                console.log('[ApisApp] Nova versão pronta! Exibindo notificação...');
+                showUpdateBanner();
+              }
+            });
+          });
+        }).catch(err => console.log('Erro ao registrar Service Worker:', err));
+
+        // Recarregar automaticamente quando a nova versão assumir o controle
+        let refreshing = false;
+        navigator.serviceWorker.addEventListener('controllerchange', () => {
+          if (!refreshing) {
+            refreshing = true;
+            window.location.reload();
+          }
+        });
       });
+    }
+
+    function showUpdateBanner() {
+      const banner = document.getElementById('update-banner');
+      if (banner) banner.style.display = 'block';
     }
   </script>
 </head>
 <body>
   <div id="app-container">
+    <!-- Banner Notificação de Nova Versão Encontrada -->
+    <div id="update-banner" style="display:none; background:linear-gradient(90deg, #d97706, #f59e0b); color:#0f172a; padding:0.75rem 2rem; font-size:0.9rem; font-weight:700; text-align:center; position:sticky; top:0; z-index:2000; box-shadow:0 4px 15px rgba(245,158,11,0.5);">
+      🚀 <span>Uma nova versão do ApisApp foi encontrada e baixada!</span>
+      <button onclick="window.location.reload()" style="background:#0f172a; color:#fff; border:none; padding:0.35rem 0.9rem; border-radius:8px; font-weight:700; margin-left:1rem; cursor:pointer;">
+        🔄 Aplicar Atualização Agora
+      </button>
+    </div>
+
     <!-- Navbar Superior -->
     <header class="navbar">
       <a href="#" class="brand">
         <img src="./assets/icon.png" alt="ApisApp Logo" class="brand-logo-img" style="width:44px; height:44px; border-radius:12px; object-fit:cover; border:2px solid var(--honey-400); box-shadow:0 0 10px rgba(245,158,11,0.4);">
         <div class="brand-text">
           <h1>ApisApp Pro</h1>
-          <span>Gestão de Abelhas Apis mellifera</span>
+          <span>Gestão de Abelhas Apis mellifera v1.0.2</span>
         </div>
       </a>
 
@@ -100,7 +148,7 @@
 
     <!-- Rodapé -->
     <footer style="text-align:center; padding:1.5rem; color:var(--slate-400); font-size:0.8rem; border-top:1px solid var(--glass-border); margin-top:2rem;">
-      <p><strong>ApisApp Pro</strong> &copy; 2026 - Desenvolvido para Apicultura Racional de <em>Apis mellifera</em>.</p>
+      <p><strong>ApisApp Pro v1.0.2</strong> &copy; 2026 - Desenvolvido para Apicultura Racional de <em>Apis mellifera</em>.</p>
     </footer>
   </div>
 
