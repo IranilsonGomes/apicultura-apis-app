@@ -1,6 +1,6 @@
 /**
  * ApisApp - Sistema de Gestão para Apicultura (Abelhas Apis mellifera)
- * Módulo de Armazenamento Local - Cadastro em Branco (Início do Zero)
+ * Módulo de Armazenamento Local, Backup Diário Automático e Integração Google Drive / E-mail
  */
 
 const STORAGE_KEYS = {
@@ -8,10 +8,11 @@ const STORAGE_KEYS = {
   HIVES: 'apisapp_hives',
   INSPECTIONS: 'apisapp_inspections',
   HARVESTS: 'apisapp_harvests',
-  SETTINGS: 'apisapp_settings'
+  SETTINGS: 'apisapp_settings',
+  LAST_BACKUP_DATE: 'apisapp_last_backup_date',
+  BACKUPS_HISTORY: 'apisapp_backups_history'
 };
 
-// Dados em branco para iniciar do zero
 const EMPTY_DATA = {
   apiaries: [],
   hives: [],
@@ -21,10 +22,11 @@ const EMPTY_DATA = {
 
 export const ApisStorage = {
   init() {
-    // Inicializar em branco se não existirem chaves salvas
     if (!localStorage.getItem(STORAGE_KEYS.APIARIES)) {
       this.clearAll();
     }
+    // Verificar e executar backup diário automático se necessário
+    this.checkAutoBackup();
   },
 
   getAll() {
@@ -46,6 +48,85 @@ export const ApisStorage = {
   clearAll() {
     this.saveAll(EMPTY_DATA);
     return this.getAll();
+  },
+
+  // --------------------------------------------------------------------------
+  // BACKUP DIÁRIO AUTOMÁTICO & ENVIO PARA GOOGLE DRIVE / E-MAIL
+  // --------------------------------------------------------------------------
+
+  getLastBackupDate() {
+    return localStorage.getItem(STORAGE_KEYS.LAST_BACKUP_DATE) || null;
+  },
+
+  getBackupsHistory() {
+    return JSON.parse(localStorage.getItem(STORAGE_KEYS.BACKUPS_HISTORY) || '[]');
+  },
+
+  /**
+   * Verifica se o backup de hoje já foi feito. Se não, gera automaticamente um snapshot.
+   */
+  checkAutoBackup() {
+    const today = new Date().toISOString().split('T')[0];
+    const lastBackup = this.getLastBackupDate();
+
+    if (lastBackup !== today) {
+      this.performAutoBackup(today);
+    }
+  },
+
+  performAutoBackup(dateStr) {
+    const data = this.getAll();
+    const history = this.getBackupsHistory();
+
+    const snapshot = {
+      id: 'snap-' + Date.now(),
+      date: dateStr || new Date().toISOString().split('T')[0],
+      timestamp: new Date().toISOString(),
+      summary: `${data.apiaries.length} apiários, ${data.hives.length} colmeias, ${data.inspections.length} inspeções`,
+      data: data
+    };
+
+    // Guardar histórico (máximo 30 backups diários)
+    history.unshift(snapshot);
+    if (history.length > 30) history.pop();
+
+    localStorage.setItem(STORAGE_KEYS.BACKUPS_HISTORY, JSON.stringify(history));
+    localStorage.setItem(STORAGE_KEYS.LAST_BACKUP_DATE, snapshot.date);
+
+    console.log(`[ApisApp] Backup diário automático realizado com sucesso para a data: ${snapshot.date}`);
+    return snapshot;
+  },
+
+  /**
+   * Envia o arquivo de Backup diretamente para o Google Drive, Gmail ou E-mail da conta do celular.
+   * Utiliza a Web Share API nativa do Android/iOS.
+   */
+  async shareToDriveOrEmail() {
+    const data = this.getAll();
+    const today = new Date().toISOString().split('T')[0];
+    const fileName = `ApisApp_Backup_${today}.json`;
+    const jsonStr = JSON.stringify(data, null, 2);
+
+    const file = new File([jsonStr], fileName, { type: 'application/json' });
+
+    if (navigator.canShare && navigator.canShare({ files: [file] })) {
+      try {
+        await navigator.share({
+          title: `Backup ApisApp (${today})`,
+          text: `Backup diário dos dados de apicultura - Abelhas Apis mellifera (${today}).`,
+          files: [file]
+        });
+        return { success: true, method: 'share' };
+      } catch (err) {
+        if (err.name !== 'AbortError') {
+          console.error("Erro ao compartilhar:", err);
+        }
+      }
+    }
+
+    // Fallback se não suportar Web Share API: Download automático
+    this.exportJSON();
+    return { success: true, method: 'download' };
   },
 
   // Apiários
@@ -73,7 +154,6 @@ export const ApisStorage = {
     list = list.filter(a => a.id !== id);
     localStorage.setItem(STORAGE_KEYS.APIARIES, JSON.stringify(list));
 
-    // Remover colmeias associadas
     let hives = this.getHives();
     hives = hives.filter(h => h.apiaryId !== id);
     localStorage.setItem(STORAGE_KEYS.HIVES, JSON.stringify(hives));
@@ -195,10 +275,10 @@ export function getQueenColorForYear(year) {
   const y = parseInt(year, 10);
   if (isNaN(y)) return QUEEN_COLOR_CODES[0];
   const lastDigit = y % 10;
-  if (lastDigit === 1 || lastDigit === 6) return QUEEN_COLOR_CODES[0]; // Branco
-  if (lastDigit === 2 || lastDigit === 7) return QUEEN_COLOR_CODES[1]; // Amarelo
-  if (lastDigit === 3 || lastDigit === 8) return QUEEN_COLOR_CODES[2]; // Vermelho
-  if (lastDigit === 4 || lastDigit === 9) return QUEEN_COLOR_CODES[3]; // Verde
-  if (lastDigit === 5 || lastDigit === 0) return QUEEN_COLOR_CODES[4]; // Azul
+  if (lastDigit === 1 || lastDigit === 6) return QUEEN_COLOR_CODES[0];
+  if (lastDigit === 2 || lastDigit === 7) return QUEEN_COLOR_CODES[1];
+  if (lastDigit === 3 || lastDigit === 8) return QUEEN_COLOR_CODES[2];
+  if (lastDigit === 4 || lastDigit === 9) return QUEEN_COLOR_CODES[3];
+  if (lastDigit === 5 || lastDigit === 0) return QUEEN_COLOR_CODES[4];
   return QUEEN_COLOR_CODES[0];
 }

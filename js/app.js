@@ -1,6 +1,6 @@
 /**
  * ApisApp - Lógica da Aplicação Principal
- * Gestão Integrada de Apicultura (Apis mellifera) - Versão Limpa (Zero Cadastro)
+ * Gestão Integrada de Apicultura (Apis mellifera) - Com Backup Diário Automático & Google Drive
  */
 
 import { ApisStorage, QUEEN_COLOR_CODES, getQueenColorForYear } from './storage.js';
@@ -15,6 +15,8 @@ document.addEventListener('DOMContentLoaded', () => {
   ApisStorage.init();
   setupNavigation();
   setupEventListeners();
+  setupNetworkListeners();
+  checkAutoBackupBanner();
   renderApp();
 });
 
@@ -46,7 +48,11 @@ function setupEventListeners() {
     });
   }
 
-  // Exportar / Importar / Limpar Dados
+  // Botões de Backup no Cabeçalho
+  document.getElementById('btn-cloud-drive')?.addEventListener('click', () => {
+    openBackupModal();
+  });
+
   document.getElementById('btn-export-json')?.addEventListener('click', () => {
     ApisStorage.exportJSON();
   });
@@ -76,6 +82,40 @@ function setupEventListeners() {
         reader.readAsText(file);
       }
     });
+  }
+
+  // Banner superior de backup
+  document.getElementById('btn-banner-share')?.addEventListener('click', async () => {
+    await ApisStorage.shareToDriveOrEmail();
+  });
+
+  document.getElementById('btn-close-banner')?.addEventListener('click', () => {
+    const banner = document.getElementById('backup-status-banner');
+    if (banner) banner.style.display = 'none';
+  });
+}
+
+// Ouvir alterações de Conexão à Internet (Online / Offline)
+function setupNetworkListeners() {
+  window.addEventListener('online', () => {
+    console.log('[ApisApp] Dispositivo conectado à internet. Verificando backup diário...');
+    ApisStorage.checkAutoBackup();
+    checkAutoBackupBanner();
+  });
+}
+
+// Exibir banner de notificação de backup diário se necessário
+function checkAutoBackupBanner() {
+  const lastBackup = ApisStorage.getLastBackupDate();
+  const today = new Date().toISOString().split('T')[0];
+
+  const banner = document.getElementById('backup-status-banner');
+  if (!banner) return;
+
+  if (lastBackup === today && navigator.onLine) {
+    banner.style.display = 'block';
+  } else {
+    banner.style.display = 'none';
   }
 }
 
@@ -126,6 +166,114 @@ function renderApp() {
 }
 
 /* ==========================================================================
+   MODAL DE BACKUP E GOOGLE DRIVE
+   ========================================================================== */
+function openBackupModal() {
+  const isOnline = navigator.onLine;
+  const lastBackup = ApisStorage.getLastBackupDate() || 'Nenhum realizado ainda';
+  const history = ApisStorage.getBackupsHistory();
+
+  const html = `
+    <div style="display:flex; flex-direction:column; gap:1.25rem;">
+      <!-- Status da Conexão & Auto-Backup -->
+      <div style="background:rgba(15,23,42,0.8); padding:1.25rem; border-radius:12px; border:1px solid var(--slate-700);">
+        <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:0.75rem;">
+          <strong style="color:var(--honey-400); font-size:1.1rem;">☁️ Status do Backup Automático</strong>
+          <span class="tag-badge" style="background:${isOnline ? 'rgba(16,185,129,0.2)' : 'rgba(239,68,68,0.2)'}; color:${isOnline ? 'var(--emerald-500)' : 'var(--rose-500)'}">
+            ${isOnline ? '🟢 Conectado à Internet' : '🔴 Offline'}
+          </span>
+        </div>
+        <p style="font-size:0.85rem; color:var(--slate-200); margin-bottom:1rem;">
+          O <strong>ApisApp Pro</strong> executa um backup automático 1 vez por dia na memória do celular. Quando houver conexão à internet, você pode salvar o arquivo diretamente no <strong>Google Drive</strong> ou <strong>E-mail</strong> da sua conta com 1 toque.
+        </p>
+        <div style="font-size:0.8rem; color:var(--slate-400); margin-bottom:1rem;">
+          📅 <strong>Último Backup Diário:</strong> ${lastBackup}
+        </div>
+
+        <div style="display:flex; gap:0.75rem; flex-wrap:wrap;">
+          <button class="btn btn-primary" id="btn-share-drive" style="flex:1;">
+            ☁️ Enviar para o Google Drive / E-mail
+          </button>
+          <button class="btn btn-secondary" id="btn-force-backup">
+            ⚡ Forçar Backup Agora
+          </button>
+        </div>
+      </div>
+
+      <!-- Histórico dos Backups Diários Salvos -->
+      <div>
+        <h4 style="color:var(--honey-400); font-size:1rem; margin-bottom:0.75rem;">📜 Histórico de Backups Diários Salvos (Últimos 30 dias)</h4>
+        <div class="table-responsive" style="max-height:220px; overflow-y:auto;">
+          ${history.length === 0 ? `
+            <div style="text-align:center; padding:1.5rem; color:var(--slate-400); font-size:0.85rem;">
+              Nenhum histórico de backup gravado ainda.
+            </div>
+          ` : `
+            <table class="data-table">
+              <thead>
+                <tr>
+                  <th>Data</th>
+                  <th>Resumo dos Dados</th>
+                  <th>Ações</th>
+                </tr>
+              </thead>
+              <tbody>
+                ${history.map(snap => `
+                  <tr>
+                    <td><strong>${snap.date}</strong></td>
+                    <td style="font-size:0.8rem;">${snap.summary}</td>
+                    <td>
+                      <div style="display:flex; gap:0.4rem;">
+                        <button class="btn btn-secondary btn-restore-snap" data-id="${snap.id}" style="padding:0.25rem 0.5rem; font-size:0.75rem;" title="Restaurar este backup">
+                          🔄 Restaurar
+                        </button>
+                      </div>
+                    </td>
+                  </tr>
+                `).join('')}
+              </tbody>
+            </table>
+          `}
+        </div>
+      </div>
+    </div>
+  `;
+
+  openModal('☁️ Backup Diário & Google Drive', html);
+
+  document.getElementById('btn-share-drive')?.addEventListener('click', async () => {
+    const result = await ApisStorage.shareToDriveOrEmail();
+    if (result && result.success) {
+      if (result.method === 'download') {
+        alert('O arquivo de backup foi baixado! Você pode anexá-lo ao seu Google Drive ou enviá-lo por E-mail.');
+      }
+    }
+  });
+
+  document.getElementById('btn-force-backup')?.addEventListener('click', () => {
+    const today = new Date().toISOString().split('T')[0];
+    ApisStorage.performAutoBackup(today);
+    alert('Backup diário gerado com sucesso!');
+    closeModal();
+    openBackupModal();
+  });
+
+  document.querySelectorAll('.btn-restore-snap').forEach(btn => {
+    btn.addEventListener('click', () => {
+      const snapId = btn.getAttribute('data-id');
+      const history = ApisStorage.getBackupsHistory();
+      const snap = history.find(s => s.id === snapId);
+      if (snap && confirm(`Tem certeza que deseja restaurar o backup do dia ${snap.date}? Os dados atuais serão substituídos.`)) {
+        ApisStorage.saveAll(snap.data);
+        alert('Dados restaurados com sucesso!');
+        closeModal();
+        renderApp();
+      }
+    });
+  });
+}
+
+/* ==========================================================================
    1. DASHBOARD VIEW (Painel Geral)
    ========================================================================== */
 function renderDashboardView(data) {
@@ -133,19 +281,16 @@ function renderDashboardView(data) {
   const activeHives = data.hives.filter(h => h.status === 'Ativa').length;
   const attentionHives = data.hives.filter(h => h.status === 'Atenção').length;
   
-  // Total de mel colhido (kg)
   const totalHoneyKg = data.harvests
     .filter(h => h.product === 'Mel')
     .reduce((acc, curr) => acc + (parseFloat(curr.quantityKg) || 0), 0);
 
-  // Média de Saúde
   const avgHealth = totalHives > 0 
     ? Math.round(data.hives.reduce((acc, curr) => acc + (parseInt(curr.healthScore) || 0), 0) / totalHives)
     : 0;
 
-  // Previsão Simulado para Voo de Abelhas Apis
-  const tempSimulated = 26; // °C ideal
-  const windSimulated = 11; // km/h
+  const tempSimulated = 26;
+  const windSimulated = 11;
   const flightCondition = (tempSimulated >= 20 && windSimulated < 20) 
     ? { label: 'Ótima para Voo & Revisão', color: 'var(--emerald-500)', icon: '☀️' }
     : { label: 'Cuidado (Vento/Frio)', color: 'var(--rose-500)', icon: '🌧️' };
@@ -159,7 +304,7 @@ function renderDashboardView(data) {
         <div class="hero-tags">
           <span class="tag-badge">🐝 Abelhas Apis</span>
           <span class="tag-badge">🍯 Rastreabilidade de Lotes</span>
-          <span class="tag-badge">👑 Controle de Rainhas</span>
+          <span class="tag-badge">☁️ Backup Diário no Drive</span>
           <span class="tag-badge">📊 Saúde do Apiário: ${avgHealth}%</span>
         </div>
       </div>
@@ -279,9 +424,9 @@ function renderDashboardView(data) {
         
         <div style="display:flex; flex-direction:column; gap:1rem;">
           <div style="background:rgba(245,158,11,0.1); border-left:4px solid var(--honey-400); padding:0.85rem; border-radius:8px;">
-            <strong style="color:var(--honey-400); font-size:0.85rem;">✨ CADASTRO LIMPO PRONTO</strong>
+            <strong style="color:var(--honey-400); font-size:0.85rem;">☁️ BACKUP DIÁRIO ATIVO</strong>
             <p style="font-size:0.8rem; color:var(--slate-200); margin-top:0.25rem;">
-              O sistema está zerado para você cadastrar seus apiários reais, colmeias e inspeções de campo.
+              O sistema salva automaticamente 1 backup por dia. Quando tiver internet, clique em <strong>"Backup & Drive"</strong> para enviar ao seu Google Drive ou E-mail.
             </p>
           </div>
 
