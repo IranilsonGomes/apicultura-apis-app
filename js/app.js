@@ -1,6 +1,6 @@
 /**
  * ApisApp - Lógica da Aplicação Principal
- * Gestão Integrada de Apicultura (Apis mellifera)
+ * Gestão Integrada de Apicultura (Apis mellifera) - Versão Limpa (Zero Cadastro)
  */
 
 import { ApisStorage, QUEEN_COLOR_CODES, getQueenColorForYear } from './storage.js';
@@ -46,14 +46,14 @@ function setupEventListeners() {
     });
   }
 
-  // Exportar / Importar / Reset
+  // Exportar / Importar / Limpar Dados
   document.getElementById('btn-export-json')?.addEventListener('click', () => {
     ApisStorage.exportJSON();
   });
 
-  document.getElementById('btn-reset-demo')?.addEventListener('click', () => {
-    if (confirm('Deseja restaurar os dados de demonstração iniciais? Suas alterações não salvas serão substituídas.')) {
-      ApisStorage.resetToDemoData();
+  document.getElementById('btn-reset-empty')?.addEventListener('click', () => {
+    if (confirm('Deseja limpar todos os cadastros e iniciar o sistema do zero?')) {
+      ApisStorage.clearAll();
       renderApp();
     }
   });
@@ -144,8 +144,8 @@ function renderDashboardView(data) {
     : 0;
 
   // Previsão Simulado para Voo de Abelhas Apis
-  const tempSimulated = 26; // °C ideal (20 - 32 °C)
-  const windSimulated = 11; // km/h (ideal < 20 km/h)
+  const tempSimulated = 26; // °C ideal
+  const windSimulated = 11; // km/h
   const flightCondition = (tempSimulated >= 20 && windSimulated < 20) 
     ? { label: 'Ótima para Voo & Revisão', color: 'var(--emerald-500)', icon: '☀️' }
     : { label: 'Cuidado (Vento/Frio)', color: 'var(--rose-500)', icon: '🌧️' };
@@ -163,12 +163,8 @@ function renderDashboardView(data) {
           <span class="tag-badge">📊 Saúde do Apiário: ${avgHealth}%</span>
         </div>
       </div>
-      <div class="hero-img-box" style="background: radial-gradient(circle, rgba(245,158,11,0.2) 0%, rgba(15,23,42,0.9) 100%); display:flex; align-items:center; justify-content:center; text-align:center; padding:1.5rem;">
-        <div>
-          <div style="font-size:3rem; margin-bottom:0.5rem;">🍯🐝</div>
-          <div style="font-weight:700; color:var(--honey-400);">ApisApp System</div>
-          <div style="font-size:0.75rem; color:var(--slate-400);">Manejo Racional Apícola</div>
-        </div>
+      <div class="hero-img-box" style="background: rgba(15,23,42,0.8); display:flex; align-items:center; justify-content:center; text-align:center; padding:1rem; border-radius:18px;">
+        <img src="./assets/icon.png" alt="Logo ApisApp" style="max-height:160px; max-width:160px; border-radius:24px; box-shadow:0 8px 20px rgba(245,158,11,0.3); border:3px solid var(--honey-400);">
       </div>
     </div>
 
@@ -215,81 +211,84 @@ function renderDashboardView(data) {
       </div>
     </div>
 
-    <!-- Ações Rápidas & Alertas -->
+    <!-- Resumo de Colmeias e Ações -->
     <div style="display:grid; grid-template-columns: 2fr 1fr; gap:1.5rem; align-items:start;">
-      <!-- Lista de Ações Rápidas e Resumo de Colmeias -->
       <div class="glass-panel">
         <div class="section-header">
-          <h3 class="section-title">📦 Status das Colmeias Recentes</h3>
-          <button class="btn btn-primary" id="btn-quick-inspection">+ Nova Inspeção</button>
+          <h3 class="section-title">📦 Status das Colmeias</h3>
+          <div style="display:flex; gap:0.5rem;">
+            <button class="btn btn-secondary" id="btn-quick-apiary">+ Novo Apiário</button>
+            <button class="btn btn-primary" id="btn-quick-hive">+ Nova Colmeia</button>
+          </div>
         </div>
         <div class="table-responsive">
-          <table class="data-table">
-            <thead>
-              <tr>
-                <th>Código</th>
-                <th>Apiário</th>
-                <th>Rainha (Ano/Cor)</th>
-                <th>Quadros (Ninho/Mel)</th>
-                <th>Saúde</th>
-                <th>Status</th>
-              </tr>
-            </thead>
-            <tbody>
-              ${data.hives.map(h => {
-                const ap = data.apiaries.find(a => a.id === h.apiaryId);
-                const qColor = getQueenColorForYear(h.queen.year);
-                return `
-                  <tr>
-                    <td><strong>${h.code}</strong> (${h.name})</td>
-                    <td>${ap ? ap.name : 'Sem Apiário'}</td>
-                    <td>
-                      <span class="queen-badge" style="background:${qColor.color}; color:${qColor.textColor};">
-                        👑 ${h.queen.year}
-                      </span>
-                    </td>
-                    <td>${h.framesBrood} N / ${h.framesHoney} M (${h.supersCount} Melgueiras)</td>
-                    <td>
-                      <strong style="color:${h.healthScore > 80 ? 'var(--emerald-500)' : 'var(--honey-500)'};">
-                        ${h.healthScore}%
-                      </strong>
-                    </td>
-                    <td>
-                      <span class="status-badge ${h.status === 'Ativa' ? 'status-ativa' : 'status-atencao'}">
-                        ${h.status}
-                      </span>
-                    </td>
-                  </tr>
-                `;
-              }).join('')}
-            </tbody>
-          </table>
+          ${data.hives.length === 0 ? `
+            <div style="text-align:center; padding:3rem 1rem; color:var(--slate-400);">
+              <div style="font-size:2.5rem; margin-bottom:0.5rem;">📦</div>
+              <strong style="font-size:1.1rem; color:#fff;">Nenhum apiário ou colmeia cadastrado ainda.</strong>
+              <p style="font-size:0.85rem; margin-top:0.25rem;">Clique no botão acima para cadastrar seu primeiro apiário e adicionar colmeias!</p>
+            </div>
+          ` : `
+            <table class="data-table">
+              <thead>
+                <tr>
+                  <th>Código</th>
+                  <th>Apiário</th>
+                  <th>Rainha (Ano/Cor)</th>
+                  <th>Quadros (Ninho/Mel)</th>
+                  <th>Saúde</th>
+                  <th>Status</th>
+                </tr>
+              </thead>
+              <tbody>
+                ${data.hives.map(h => {
+                  const ap = data.apiaries.find(a => a.id === h.apiaryId);
+                  const qColor = getQueenColorForYear(h.queen.year);
+                  return `
+                    <tr>
+                      <td><strong>${h.code}</strong> (${h.name})</td>
+                      <td>${ap ? ap.name : 'Sem Apiário'}</td>
+                      <td>
+                        <span class="queen-badge" style="background:${qColor.color}; color:${qColor.textColor};">
+                          👑 ${h.queen.year}
+                        </span>
+                      </td>
+                      <td>${h.framesBrood} N / ${h.framesHoney} M (${h.supersCount} Melgueiras)</td>
+                      <td>
+                        <strong style="color:${h.healthScore > 80 ? 'var(--emerald-500)' : 'var(--honey-500)'};">
+                          ${h.healthScore}%
+                        </strong>
+                      </td>
+                      <td>
+                        <span class="status-badge ${h.status === 'Ativa' ? 'status-ativa' : 'status-atencao'}">
+                          ${h.status}
+                        </span>
+                      </td>
+                    </tr>
+                  `;
+                }).join('')}
+              </tbody>
+            </table>
+          `}
         </div>
       </div>
 
-      <!-- Alertas & Lembretes Apícolas -->
+      <!-- Lembretes & Alertas -->
       <div class="glass-panel">
-        <h3 class="section-title" style="margin-bottom:1rem;">🔔 Alertas do Manejo</h3>
+        <h3 class="section-title" style="margin-bottom:1rem;">🔔 Painel de Controle</h3>
         
         <div style="display:flex; flex-direction:column; gap:1rem;">
-          <div style="background:rgba(239,68,68,0.1); border-left:4px solid var(--rose-500); padding:0.85rem; border-radius:8px;">
-            <strong style="color:var(--rose-500); font-size:0.85rem;">⚠️ TROCA DE RAINHA NECESSÁRIA</strong>
-            <p style="font-size:0.8rem; color:var(--slate-200); margin-top:0.25rem;">
-              Colmeia <strong>COL-03</strong> apresenta postura irregular e rainha velha (2023). Recomenda-se substituição.
-            </p>
-          </div>
-
           <div style="background:rgba(245,158,11,0.1); border-left:4px solid var(--honey-400); padding:0.85rem; border-radius:8px;">
-            <strong style="color:var(--honey-400); font-size:0.85rem;">🍯 ADIÇÃO DE MELGUEIRAS</strong>
+            <strong style="color:var(--honey-400); font-size:0.85rem;">✨ CADASTRO LIMPO PRONTO</strong>
             <p style="font-size:0.8rem; color:var(--slate-200); margin-top:0.25rem;">
-              Apiário <strong>Vale das Flores</strong> com início da florada de Laranjeira. Coloque melgueiras com favos alveolados.
+              O sistema está zerado para você cadastrar seus apiários reais, colmeias e inspeções de campo.
             </p>
           </div>
 
           <div style="background:rgba(16,185,129,0.1); border-left:4px solid var(--emerald-500); padding:0.85rem; border-radius:8px;">
-            <strong style="color:var(--emerald-500); font-size:0.85rem;">🩺 TRATAMENTO SANITÁRIO (VARROA)</strong>
+            <strong style="color:var(--emerald-500); font-size:0.85rem;">👑 CÓDIGO INTERNACIONAL DE RAINHAS</strong>
             <p style="font-size:0.8rem; color:var(--slate-200); margin-top:0.25rem;">
-              Última monitoria de <em>Varroa destructor</em> ok. Próxima inspeção preventiva agendada para o final do mês.
+              Ao cadastrar uma colmeia, o ano da rainha definirá automaticamente a cor oficial no sistema!
             </p>
           </div>
         </div>
@@ -299,8 +298,17 @@ function renderDashboardView(data) {
 }
 
 function bindDashboardEvents(data) {
-  document.getElementById('btn-quick-inspection')?.addEventListener('click', () => {
-    openInspectionModal(data);
+  document.getElementById('btn-quick-apiary')?.addEventListener('click', () => {
+    openApiaryModal();
+  });
+
+  document.getElementById('btn-quick-hive')?.addEventListener('click', () => {
+    if (data.apiaries.length === 0) {
+      alert('Por favor, cadastre primeiro pelo menos um Apiário antes de adicionar uma colmeia!');
+      openApiaryModal();
+    } else {
+      openHiveModal(data);
+    }
   });
 }
 
@@ -319,13 +327,34 @@ function renderApiariesView(data) {
       <div class="section-header">
         <div>
           <h2 class="section-title">🏞️ Apiários & Colmeias</h2>
-          <p style="color:var(--slate-400); font-size:0.9rem;">Gerencie locais de instalação e o estado individual de cada enxame.</p>
+          <p style="color:var(--slate-400); font-size:0.9rem;">Gerencie seus locais de instalação e colmeias cadastradas.</p>
         </div>
         <div style="display:flex; gap:0.75rem;">
           <button class="btn btn-secondary" id="btn-add-apiary">+ Novo Apiário</button>
           <button class="btn btn-primary" id="btn-add-hive">+ Nova Colmeia</button>
         </div>
       </div>
+
+      <!-- Lista de Apiários Cadastrados -->
+      ${data.apiaries.length > 0 ? `
+        <div style="margin-bottom:1.5rem; display:grid; grid-template-columns: repeat(auto-fill, minmax(260px, 1fr)); gap:1rem;">
+          ${data.apiaries.map(ap => {
+            const count = data.hives.filter(h => h.apiaryId === ap.id).length;
+            return `
+              <div style="background:rgba(15,23,42,0.7); border:1px solid var(--slate-700); padding:1rem; border-radius:12px; display:flex; justify-content:space-between; align-items:center;">
+                <div>
+                  <strong style="color:var(--honey-400); font-size:1rem;">${ap.name}</strong>
+                  <div style="font-size:0.75rem; color:var(--slate-400);">${ap.location || 'Sem localização'}</div>
+                  <div style="font-size:0.75rem; color:var(--emerald-500); margin-top:0.2rem;">${count} colmeias instaladas</div>
+                </div>
+                <button class="btn btn-danger btn-delete-apiary" data-id="${ap.id}" style="padding:0.3rem 0.6rem; font-size:0.75rem;" title="Excluir Apiário">
+                  🗑️
+                </button>
+              </div>
+            `;
+          }).join('')}
+        </div>
+      ` : ''}
 
       <!-- Filtros -->
       <div style="display:flex; gap:1rem; margin-bottom:1.5rem; flex-wrap:wrap; background:rgba(15,23,42,0.5); padding:1rem; border-radius:12px;">
@@ -351,7 +380,7 @@ function renderApiariesView(data) {
       <div class="hives-grid">
         ${filteredHives.length === 0 ? `
           <div style="grid-column: 1 / -1; text-align:center; padding:3rem; color:var(--slate-400);">
-            Nenhuma colmeia encontrada com os filtros selecionados.
+            Nenhuma colmeia cadastrada. Clique no botão <strong>"+ Nova Colmeia"</strong> para cadastrar!
           </div>
         ` : filteredHives.map(hive => {
           const apiary = data.apiaries.find(a => a.id === hive.apiaryId);
@@ -436,7 +465,22 @@ function bindApiariesEvents(data) {
   });
 
   document.getElementById('btn-add-hive')?.addEventListener('click', () => {
-    openHiveModal(data);
+    if (data.apiaries.length === 0) {
+      alert('Por favor, cadastre primeiro pelo menos um Apiário!');
+      openApiaryModal();
+    } else {
+      openHiveModal(data);
+    }
+  });
+
+  document.querySelectorAll('.btn-delete-apiary').forEach(btn => {
+    btn.addEventListener('click', () => {
+      const apiaryId = btn.getAttribute('data-id');
+      if (confirm('Tem certeza que deseja excluir este apiário e suas colmeias associadas?')) {
+        ApisStorage.deleteApiary(apiaryId);
+        renderApp();
+      }
+    });
   });
 
   document.querySelectorAll('.btn-edit-hive').forEach(btn => {
@@ -473,51 +517,57 @@ function renderInspectionsView(data) {
       </div>
 
       <div class="table-responsive">
-        <table class="data-table">
-          <thead>
-            <tr>
-              <th>Data</th>
-              <th>Colmeia</th>
-              <th>Inspetor</th>
-              <th>Rainha & Crias</th>
-              <th>Alimento</th>
-              <th>Pragas / Sanidade</th>
-              <th>Ações Tomadas</th>
-              <th>Ações</th>
-            </tr>
-          </thead>
-          <tbody>
-            ${data.inspections.map(insp => {
-              const hive = data.hives.find(h => h.id === insp.hiveId);
-              return `
-                <tr>
-                  <td><strong>${insp.date}</strong></td>
-                  <td>${hive ? `${hive.code} (${hive.name})` : 'Colmeia Excluída'}</td>
-                  <td>${insp.inspector}</td>
-                  <td>
-                    ${insp.queenSpotted ? '<span style="color:var(--emerald-500);">👑 Rainha Vista</span>' : '<span style="color:var(--slate-400);">👑 Não Vista</span>'}<br>
-                    <small>Ovos/Larvas: ${insp.eggsPresent ? '✅ Sim' : '❌ Não'}</small><br>
-                    ${insp.queenCellsSpotted ? '<strong style="color:var(--rose-500);">🚨 Realeiras!</strong>' : ''}
-                  </td>
-                  <td>
-                    <span class="tag-badge" style="font-size:0.75rem;">${insp.foodReserves}</span>
-                  </td>
-                  <td>${insp.pestsFound}</td>
-                  <td>
-                    <ul style="padding-left:1rem; font-size:0.8rem;">
-                      ${(insp.actionsTaken || []).map(a => `<li>${a}</li>`).join('')}
-                    </ul>
-                  </td>
-                  <td>
-                    <button class="btn btn-danger btn-delete-inspection" data-id="${insp.id}" style="padding:0.3rem 0.6rem; font-size:0.75rem;">
-                      🗑️
-                    </button>
-                  </td>
-                </tr>
-              `;
-            }).join('')}
-          </tbody>
-        </table>
+        ${data.inspections.length === 0 ? `
+          <div style="text-align:center; padding:3rem; color:var(--slate-400);">
+            Nenhuma inspeção realizada ainda.
+          </div>
+        ` : `
+          <table class="data-table">
+            <thead>
+              <tr>
+                <th>Data</th>
+                <th>Colmeia</th>
+                <th>Inspetor</th>
+                <th>Rainha & Crias</th>
+                <th>Alimento</th>
+                <th>Pragas / Sanidade</th>
+                <th>Ações Tomadas</th>
+                <th>Ações</th>
+              </tr>
+            </thead>
+            <tbody>
+              ${data.inspections.map(insp => {
+                const hive = data.hives.find(h => h.id === insp.hiveId);
+                return `
+                  <tr>
+                    <td><strong>${insp.date}</strong></td>
+                    <td>${hive ? `${hive.code} (${hive.name})` : 'Colmeia Excluída'}</td>
+                    <td>${insp.inspector}</td>
+                    <td>
+                      ${insp.queenSpotted ? '<span style="color:var(--emerald-500);">👑 Rainha Vista</span>' : '<span style="color:var(--slate-400);">👑 Não Vista</span>'}<br>
+                      <small>Ovos/Larvas: ${insp.eggsPresent ? '✅ Sim' : '❌ Não'}</small><br>
+                      ${insp.queenCellsSpotted ? '<strong style="color:var(--rose-500);">🚨 Realeiras!</strong>' : ''}
+                    </td>
+                    <td>
+                      <span class="tag-badge" style="font-size:0.75rem;">${insp.foodReserves}</span>
+                    </td>
+                    <td>${insp.pestsFound}</td>
+                    <td>
+                      <ul style="padding-left:1rem; font-size:0.8rem;">
+                        ${(insp.actionsTaken || []).map(a => `<li>${a}</li>`).join('')}
+                      </ul>
+                    </td>
+                    <td>
+                      <button class="btn btn-danger btn-delete-inspection" data-id="${insp.id}" style="padding:0.3rem 0.6rem; font-size:0.75rem;">
+                        🗑️
+                      </button>
+                    </td>
+                  </tr>
+                `;
+              }).join('')}
+            </tbody>
+          </table>
+        `}
       </div>
     </div>
   `;
@@ -525,7 +575,11 @@ function renderInspectionsView(data) {
 
 function bindInspectionsEvents(data) {
   document.getElementById('btn-new-inspection')?.addEventListener('click', () => {
-    openInspectionModal(data);
+    if (data.hives.length === 0) {
+      alert('Cadastre primeiro uma colmeia para registrar uma inspeção!');
+    } else {
+      openInspectionModal(data);
+    }
   });
 
   document.querySelectorAll('.btn-delete-inspection').forEach(btn => {
@@ -579,46 +633,52 @@ function renderHarvestView(data) {
       </div>
 
       <div class="table-responsive">
-        <table class="data-table">
-          <thead>
-            <tr>
-              <th>Data</th>
-              <th>Produto</th>
-              <th>Quantidade</th>
-              <th>Florada</th>
-              <th>Nº do Lote</th>
-              <th>Umidade (%)</th>
-              <th>Valor Unit. (R$)</th>
-              <th>Ações</th>
-            </tr>
-          </thead>
-          <tbody>
-            ${data.harvests.map(harv => `
+        ${data.harvests.length === 0 ? `
+          <div style="text-align:center; padding:3rem; color:var(--slate-400);">
+            Nenhuma colheita registrada ainda.
+          </div>
+        ` : `
+          <table class="data-table">
+            <thead>
               <tr>
-                <td><strong>${harv.date}</strong></td>
-                <td>
-                  <span class="tag-badge" style="background:rgba(245,158,11,0.2); color:var(--honey-400);">
-                    ${harv.product}
-                  </span>
-                </td>
-                <td><strong>${harv.quantityKg} ${harv.product === 'Mel' || harv.product.includes('Cera') ? 'kg' : 'g/kg'}</strong></td>
-                <td>${harv.floralSource}</td>
-                <td><code>${harv.batchNumber}</code></td>
-                <td>
-                  <span style="color:${harv.moisturePct > 0 && harv.moisturePct <= 18 ? 'var(--emerald-500)' : 'var(--honey-400)'}">
-                    ${harv.moisturePct > 0 ? harv.moisturePct + '%' : 'N/A'}
-                  </span>
-                </td>
-                <td>R$ ${parseFloat(harv.unitPriceBrl).toFixed(2)}</td>
-                <td>
-                  <button class="btn btn-danger btn-delete-harvest" data-id="${harv.id}" style="padding:0.3rem 0.6rem; font-size:0.75rem;">
-                    🗑️
-                  </button>
-                </td>
+                <th>Data</th>
+                <th>Produto</th>
+                <th>Quantidade</th>
+                <th>Florada</th>
+                <th>Nº do Lote</th>
+                <th>Umidade (%)</th>
+                <th>Valor Unit. (R$)</th>
+                <th>Ações</th>
               </tr>
-            `).join('')}
-          </tbody>
-        </table>
+            </thead>
+            <tbody>
+              ${data.harvests.map(harv => `
+                <tr>
+                  <td><strong>${harv.date}</strong></td>
+                  <td>
+                    <span class="tag-badge" style="background:rgba(245,158,11,0.2); color:var(--honey-400);">
+                      ${harv.product}
+                    </span>
+                  </td>
+                  <td><strong>${harv.quantityKg} ${harv.product === 'Mel' || harv.product.includes('Cera') ? 'kg' : 'g/kg'}</strong></td>
+                  <td>${harv.floralSource}</td>
+                  <td><code>${harv.batchNumber}</code></td>
+                  <td>
+                    <span style="color:${harv.moisturePct > 0 && harv.moisturePct <= 18 ? 'var(--emerald-500)' : 'var(--honey-400)'}">
+                      ${harv.moisturePct > 0 ? harv.moisturePct + '%' : 'N/A'}
+                    </span>
+                  </td>
+                  <td>R$ ${parseFloat(harv.unitPriceBrl).toFixed(2)}</td>
+                  <td>
+                    <button class="btn btn-danger btn-delete-harvest" data-id="${harv.id}" style="padding:0.3rem 0.6rem; font-size:0.75rem;">
+                      🗑️
+                    </button>
+                  </td>
+                </tr>
+              `).join('')}
+            </tbody>
+          </table>
+        `}
       </div>
     </div>
   `;
@@ -626,7 +686,11 @@ function renderHarvestView(data) {
 
 function bindHarvestEvents(data) {
   document.getElementById('btn-new-harvest')?.addEventListener('click', () => {
-    openHarvestModal(data);
+    if (data.apiaries.length === 0) {
+      alert('Cadastre primeiro um apiário antes de registrar uma colheita!');
+    } else {
+      openHarvestModal(data);
+    }
   });
 
   document.querySelectorAll('.btn-delete-harvest').forEach(btn => {
@@ -713,10 +777,6 @@ function renderAnalyticsView(data) {
             <li style="display:flex; justify-content:space-between; border-bottom:1px solid var(--slate-700); padding-bottom:0.5rem;">
               <span>Própolis Bruta / Extrato:</span>
               <strong>${(totalPropolis * 1000).toFixed(0)} g</strong>
-            </li>
-            <li style="display:flex; justify-content:space-between; border-bottom:1px solid var(--slate-700); padding-bottom:0.5rem;">
-              <span>Colmeia Mais Produtiva:</span>
-              <strong style="color:var(--emerald-500);">COL-01 (28.5 kg)</strong>
             </li>
           </ul>
         </div>
@@ -1118,7 +1178,7 @@ function openHarvestModal(data) {
 
       <div class="form-group">
         <label>Florada Predominante:</label>
-        <input type="text" id="harv-floral" class="form-control" value="Eucalipto & Silvestre" required>
+        <input type="text" id="harv-floral" class="form-control" placeholder="Ex: Eucalipto, Laranjeira" required>
       </div>
 
       <div class="form-group">
