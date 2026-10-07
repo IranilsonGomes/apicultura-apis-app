@@ -9,7 +9,8 @@
 // ==========================================================================
 
 const STORAGE_KEYS = {
-  APIARIES: 'apisapp_apiaries',
+  APICULTOR_INFO: 'apisapp_apicultor_info', // Salva { nomeApicultor, apiarioPrincipal }
+  APIARIES: 'apisapp_apiaries', // Passará a gerenciar os núcleos
   HIVES: 'apisapp_hives',
   QUEENS: 'apisapp_queens',
   INSPECTIONS: 'apisapp_inspections',
@@ -38,13 +39,35 @@ const EMPTY_DATA = {
 
 const ApisStorage = {
   init() {
+    // Inicializa a estrutura básica com segurança sem apagar o cadastro do produtor
     if (!localStorage.getItem(STORAGE_KEYS.APIARIES)) {
-      this.clearAll();
+      localStorage.setItem(STORAGE_KEYS.APIARIES, JSON.stringify([]));
+      localStorage.setItem(STORAGE_KEYS.HIVES, JSON.stringify([]));
+      localStorage.setItem(STORAGE_KEYS.QUEENS, JSON.stringify([]));
+      localStorage.setItem(STORAGE_KEYS.INSPECTIONS, JSON.stringify([]));
+      localStorage.setItem(STORAGE_KEYS.HARVESTS, JSON.stringify([]));
     }
     if (!localStorage.getItem(STORAGE_KEYS.QUEEN_COLORS)) {
       localStorage.setItem(STORAGE_KEYS.QUEEN_COLORS, JSON.stringify(DEFAULT_QUEEN_COLOR_CODES));
     }
     this.checkAutoBackup();
+  },
+
+  getApicultorInfo() {
+    const dados = localStorage.getItem(STORAGE_KEYS.APICULTOR_INFO);
+    return dados ? JSON.parse(dados) : null;
+  },
+
+  saveApicultorInfo(nomeApicultor, apiarioPrincipal) {
+    const info = { nomeApicultor, apiarioPrincipal, dataCadastro: new Date().toISOString() };
+    localStorage.setItem(STORAGE_KEYS.APICULTOR_INFO, JSON.stringify(info));
+    
+    // Cadastra automaticamente o Apiário Principal como o primeiro "Núcleo" vinculado à sede inicial
+    this.saveApiary({
+      name: apiarioPrincipal + " - Sede",
+      location: 'Sede Principal',
+      notes: 'Núcleo base gerado automaticamente para o apiário ' + apiarioPrincipal + '.'
+    });
   },
 
   getAll() {
@@ -362,12 +385,71 @@ let selectedStatusFilter = 'all';
 
 document.addEventListener('DOMContentLoaded', () => {
   ApisStorage.init();
+  
+  // Verifica se é o primeiro acesso do cliente
+  const infoApicultor = ApisStorage.getApicultorInfo();
+  
+  if (!infoApicultor) {
+    // Trava o aplicativo na tela de cadastro inicial obrigatório
+    exibirTelaPrimeiroAcesso();
+  } else {
+    // Se já cadastrado anteriormente, inicia o sistema normalmente
+    IniciarAplicativoNormal();
+  }
+});
+
+function IniciarAplicativoNormal() {
   setupNavigation();
   setupEventListeners();
   setupNetworkListeners();
   checkAutoBackupBanner();
   renderApp();
-});
+}
+
+function exibirTelaPrimeiroAcesso() {
+  document.body.innerHTML = `
+    <div style="background:#0f172a; color:#fff; min-height:100vh; display:flex; align-items:center; justify-content:center; font-family:sans-serif; padding:1.5rem; box-sizing:border-box;">
+      <div style="background:rgba(30,41,59,0.7); border:1px solid #334155; padding:2.5rem; border-radius:16px; max-width:500px; w_idth:100%; box-shadow:0 10px 25px rgba(0,0,0,0.5); backdrop-filter:blur(10px);">
+        <div style="text-align:center; margin-bottom:2rem;">
+          <span style="font-size:3.5rem;">🐝</span>
+          <h1 style="font-size:1.8rem; color:#facc15; margin-top:0.5rem;">Bem-vindo ao ApisApp Pro</h1>
+          <p style="color:#94a3b8; font-size:0.9rem; margin-top:0.25rem;">Configure seu perfil inicial de apicultura para liberar o uso do sistema.</p>
+        </div>
+        
+        <form id="form-primeiro-acesso" style="display:flex; flex-direction:column; gap:1.25rem;">
+          <div style="display:flex; flex-direction:column; gap:0.4rem;">
+            <label style="font-size:0.85rem; font-weight:600; color:#e2e8f0;">Nome do Apicultor / Produtor:</label>
+            <input type="text" id="init-nome-apicultor" style="background:#1e293b; border:1px solid #475569; padding:0.75rem; border-radius:8px; color:#fff; font-size:1rem;" placeholder="Ex: Francisco José" required>
+          </div>
+          
+          <div style="display:flex; flex-direction:column; gap:0.4rem;">
+            <label style="font-size:0.85rem; font-weight:600; color:#e2e8f0;">Nome do Apiário Geral:</label>
+            <input type="text" id="init-nome-apiario" style="background:#1e293b; border:1px solid #475569; padding:0.75rem; border-radius:8px; color:#fff; font-size:1rem;" placeholder="Ex: Apiário Sol Nascente" required>
+          </div>
+          
+          <button type="submit" style="background:#facc15; color:#0f172a; border:none; padding:0.85rem; border-radius:8px; font-weight:700; font-size:1rem; cursor:pointer; margin-top:1rem; transition:background 0.2s;">
+            Salvar e Entrar no Sistema
+          </button>
+        </form>
+      </div>
+    </div>
+  `;
+
+  // Processa o envio do formulário de entrada
+  document.getElementById('form-primeiro-acesso').addEventListener('submit', (e) => {
+    e.preventDefault();
+    const nome = document.getElementById('init-nome-apicultor').value.trim();
+    const apiario = document.getElementById('init-nome-apiario').value.trim();
+    
+    if (nome && apiario) {
+      ApisStorage.saveApicultorInfo(nome, apiario);
+      alert('Configuração inicial salva com sucesso! Bem-vindo.');
+      
+      // Força a recarga limpa do aplicativo já liberado
+      window.location.reload();
+    }
+  });
+}
 
 function setupNavigation() {
   const navButtons = document.querySelectorAll('.nav-item button');
@@ -852,6 +934,45 @@ function renderDashboardView(data) {
     ? { label: 'Ótima para Voo & Revisão', color: 'var(--emerald-500)', icon: '☀️' }
     : { label: 'Cuidado (Vento/Frio)', color: 'var(--rose-500)', icon: '🌧️' };
 
+  let hivesRowsHtml = '';
+  if (data.hives.length === 0) {
+    hivesRowsHtml = `
+      <tr>
+        <td colspan="6" style="text-align:center; padding:2rem; color:var(--slate-400);">
+          Nenhum núcleo ou colmeia cadastrado ainda.
+        </td>
+      </tr>
+    `;
+  } else {
+    for (let i = 0; i < data.hives.length; i++) {
+      const h = data.hives[i];
+      const ap = data.apiaries.find(a => a.id === h.apiaryId);
+      const qColor = getQueenColorForYear(h.queen?.year || new Date().getFullYear());
+      hivesRowsHtml += `
+        <tr>
+          <td><strong>${h.code}</strong> (${h.name})</td>
+          <td>${ap ? ap.name : 'Sem Núcleo'}</td>
+          <td>
+            <span class="queen-badge" style="background:${h.queen?.color || qColor.color}; color:${qColor.textColor};">
+              👑 ${h.queen?.year || 'N/A'}
+            </span>
+          </td>
+          <td>${h.framesBrood} N / ${h.framesHoney} M (${h.supersCount} Melgueiras)</td>
+          <td>
+            <strong style="color:${h.healthScore > 80 ? 'var(--emerald-500)' : 'var(--honey-500)'};">
+              ${h.healthScore}%
+            </strong>
+          </td>
+          <td>
+            <span class="status-badge ${h.status === 'Ativa' ? 'status-ativa' : 'status-atencao'}">
+              ${h.status}
+            </span>
+          </td>
+        </tr>
+      `;
+    }
+  }
+
   return `
     <div class="hero-card">
       <div class="hero-text">
@@ -916,65 +1037,31 @@ function renderDashboardView(data) {
         <div class="section-header">
           <h3 class="section-title">📦 Status das Colmeias</h3>
           <div style="display:flex; gap:0.5rem;">
-            <button class="btn btn-secondary" id="btn-quick-apiary">+ Novo Apiário</button>
+            <button class="btn btn-secondary" id="btn-quick-apiary">+ Novo Núcleo</button>
             <button class="btn btn-primary" id="btn-quick-hive">+ Nova Colmeia</button>
           </div>
         </div>
         <div class="table-responsive">
-          ${data.hives.length === 0 ? `
-            <div style="text-align:center; padding:3rem 1rem; color:var(--slate-400);">
-              <div style="font-size:2.5rem; margin-bottom:0.5rem;">📦</div>
-              <strong style="font-size:1.1rem; color:#fff;">Nenhum apiário ou colmeia cadastrado ainda.</strong>
-              <p style="font-size:0.85rem; margin-top:0.25rem;">Clique no botão acima para cadastrar seu primeiro apiário e adicionar colmeias!</p>
-            </div>
-          ` : `
-            <table class="data-table">
-              <thead>
-                <tr>
-                  <th>Código</th>
-                  <th>Apiário</th>
-                  <th>Rainha (Ano/Cor)</th>
-                  <th>Quadros (Ninho/Mel)</th>
-                  <th>Saúde</th>
-                  <th>Status</th>
-                </tr>
-              </thead>
-              <tbody>
-                ${data.hives.map(h => {
-                  const ap = data.apiaries.find(a => a.id === h.apiaryId);
-                  const qColor = getQueenColorForYear(h.queen.year);
-                  return `
-                    <tr>
-                      <td><strong>${h.code}</strong> (${h.name})</td>
-                      <td>${ap ? ap.name : 'Sem Apiário'}</td>
-                      <td>
-                        <span class="queen-badge" style="background:${h.queen.color || qColor.color}; color:${qColor.textColor};">
-                          👑 ${h.queen.year}
-                        </span>
-                      </td>
-                      <td>${h.framesBrood} N / ${h.framesHoney} M (${h.supersCount} Melgueiras)</td>
-                      <td>
-                        <strong style="color:${h.healthScore > 80 ? 'var(--emerald-500)' : 'var(--honey-500)'};">
-                          ${h.healthScore}%
-                        </strong>
-                      </td>
-                      <td>
-                        <span class="status-badge ${h.status === 'Ativa' ? 'status-ativa' : 'status-atencao'}">
-                          ${h.status}
-                        </span>
-                      </td>
-                    </tr>
-                  `;
-                }).join('')}
-              </tbody>
-            </table>
-          `}
+          <table class="data-table">
+            <thead>
+              <tr>
+                <th>Código</th>
+                <th>Núcleo Alocado</th>
+                <th>Rainha (Ano/Cor)</th>
+                <th>Quadros (Ninho/Mel)</th>
+                <th>Saúde</th>
+                <th>Status</th>
+              </tr>
+            </thead>
+            <tbody>
+              ${hivesRowsHtml}
+            </tbody>
+          </table>
         </div>
       </div>
 
       <div class="glass-panel">
         <h3 class="section-title" style="margin-bottom:1rem;">🔔 Painel de Controle</h3>
-        
         <div style="display:flex; flex-direction:column; gap:1rem;">
           <div style="background:rgba(245,158,11,0.1); border-left:4px solid var(--honey-400); padding:0.85rem; border-radius:8px;">
             <strong style="color:var(--honey-400); font-size:0.85rem;">👑 CADASTRO LIBERADO DE RAINHAS</strong>
@@ -1002,7 +1089,7 @@ function bindDashboardEvents(data) {
 
   document.getElementById('btn-quick-hive')?.addEventListener('click', () => {
     if (data.apiaries.length === 0) {
-      alert('Por favor, cadastre primeiro pelo menos um Apiário antes de adicionar uma colmeia!');
+      alert('Por favor, cadastre primeiro pelo menos um Núcleo antes de adicionar uma colmeia!');
       openApiaryModal();
     } else {
       openHiveModal(data);
@@ -1011,56 +1098,103 @@ function bindDashboardEvents(data) {
 }
 
 function renderApiariesView(data) {
+  const infoApicultor = ApisStorage.getApicultorInfo() || { nomeApicultor: 'Apicultor', apiarioPrincipal: 'Geral' };
   const filteredHives = data.hives.filter(hive => {
     const matchApiary = selectedApiaryFilter === 'all' || hive.apiaryId === selectedApiaryFilter;
     const matchStatus = selectedStatusFilter === 'all' || hive.status === selectedStatusFilter;
     return matchApiary && matchStatus;
   });
 
+  let nucleiRowsHtml = '';
+  if (data.apiaries && data.apiaries.length > 0) {
+    for (let i = 0; i < data.apiaries.length; i++) {
+      const ap = data.apiaries[i];
+      const count = data.hives.filter(h => h.apiaryId === ap.id).length;
+      nucleiRowsHtml += '<div style="background:rgba(15,23,42,0.7); border:1px solid var(--slate-700); padding:1rem; border-radius:12px; display:flex; justify-content:space-between; align-items:center; margin-bottom:1rem;">' +
+        '<div>' +
+          '<strong style="color:var(--honey-400); font-size:1rem;">📍 Núcleo: ' + ap.name + '</strong>' +
+          '<div style="font-size:0.75rem; color:var(--slate-400);">Pertence ao Apiário: ' + infoApicultor.apiarioPrincipal + '</div>' +
+          '<div style="font-size:0.75rem; color:var(--emerald-500); margin-top:0.2rem;">' + count + ' colmeias instaladas</div>' +
+        '</div>' +
+        '<div style="display:flex; gap:0.4rem; align-items:center;">' +
+          '<button class="btn btn-secondary btn-edit-apiary" data-id="' + ap.id + '" style="padding:0.3rem 0.55rem; font-size:0.75rem;" title="Editar Núcleo">✏️</button>' +
+          '<button class="btn btn-danger btn-delete-apiary" data-id="' + ap.id + '" style="padding:0.3rem 0.6rem; font-size:0.75rem;" title="Excluir Núcleo">🗑️</button>' +
+        '</div>' +
+      '</div>';
+    }
+  }
+
+  let filterSelectOptionsHtml = '<option value="all">Todos os Núcleos</option>';
+  if (data.apiaries && data.apiaries.length > 0) {
+    for (let k = 0; k < data.apiaries.length; k++) {
+      const a = data.apiaries[k];
+      const selectedAttr = selectedApiaryFilter === a.id ? 'selected' : '';
+      filterSelectOptionsHtml += '<option value="' + a.id + '" ' + selectedAttr + '>' + a.name + '</option>';
+    }
+  }
+
+  let hiveGridHtml = '';
+  if (filteredHives.length === 0) {
+    hiveGridHtml = '<div style="grid-column: 1 / -1; text-align:center; padding:3rem; color:var(--slate-400);">Nenhuma colmeia encontrada neste Núcleo.</div>';
+  } else {
+    for (let j = 0; j < filteredHives.length; j++) {
+      const hive = filteredHives[j];
+      const apiary = data.apiaries.find(a => a.id === hive.apiaryId);
+      const queenColor = getQueenColorForYear(hive.queen?.year || new Date().getFullYear());
+      
+      hiveGridHtml += '<div class="hive-card">' +
+        '<div class="hive-card-header">' +
+          '<div>' +
+            '<div class="hive-code">' + hive.code + '</div>' +
+            '<div class="hive-apiary">📍 ' + (apiary ? apiary.name : 'Sem Núcleo') + '</div>' +
+          '</div>' +
+          '<span class="status-badge ' + (hive.status === 'Ativa' ? 'status-ativa' : 'status-atencao') + '">' + hive.status + '</span>' +
+        '</div>' +
+        '<div style="font-size:0.9rem; font-weight:600; margin-bottom:0.5rem;">' + hive.name + '</div>' +
+        '<div style="font-size:0.8rem; color:var(--slate-400); margin-bottom:0.75rem;">Modelo: ' + hive.type + ' | Origem: ' + hive.origin + '</div>' +
+        '<div style="background:rgba(30,41,59,0.7); padding:0.6rem 0.8rem; border-radius:8px; margin-bottom:0.75rem; display:flex; align-items:center; justify-content:space-between;">' +
+          '<div>' +
+            '<div style="font-size:0.75rem; color:var(--slate-400);">Linhagem da Rainha</div>' +
+            '<div style="font-size:0.8rem; font-weight:600;">' + (hive.queen?.origin || 'Não informada') + '</div>' +
+          '</div>' +
+          '<span class="queen-badge" style="background:' + (hive.queen?.color || queenColor.color) + '; color:' + queenColor.textColor + ';">👑 Ano ' + (hive.queen?.year || 'N/A') + '</span>' +
+        '</div>' +
+        '<div class="hive-metrics">' +
+          '<div class="hive-metric-item"><span>Quadros Ninho</span><strong>' + hive.framesBrood + ' / 10</strong></div>' +
+          '<div class="hive-metric-item"><span>Melgueiras</span><strong>' + hive.supersCount + ' un</strong></div>' +
+          '<div class="hive-metric-item"><span>Mansidão</span><strong>' + '⭐'.repeat(hive.temperament) + '</strong></div>' +
+          '<div class="hive-metric-item"><span>Saúde</span><strong style="color:' + (hive.healthScore > 80 ? 'var(--emerald-500)' : 'var(--rose-500)') + ';">' + hive.healthScore + '%</strong></div>' +
+        '</div>' +
+        '<div style="display:flex; gap:0.5rem; margin-top:1rem;">' +
+          '<button class="btn btn-secondary btn-edit-hive" data-id="' + hive.id + '" style="flex:1; padding:0.4rem; font-size:0.8rem;">✏️ Editar Colmeia</button>' +
+          '<button class="btn btn-danger btn-delete-hive" data-id="' + hive.id + '" style="padding:0.4rem 0.75rem; font-size:0.8rem;">🗑️</button>' +
+        '</div>' +
+      '</div>';
+    }
+  }
+
   return `
     <div class="glass-panel">
       <div class="section-header">
         <div>
-          <h2 class="section-title">🏞️ Apiários & Colmeias</h2>
-          <p style="color:var(--slate-400); font-size:0.9rem;">Gerencie seus locais de instalação e colmeias cadastradas.</p>
+          <h2 class="section-title">🏞️ Gerenciamento de Núcleos & Colmeias</h2>
+          <p style="color:var(--slate-400); font-size:0.9rem;">Apicultor: <strong>${infoApicultor.nomeApicultor}</strong> | Apiário de Vínculo: <strong>${infoApicultor.apiarioPrincipal}</strong></p>
         </div>
         <div style="display:flex; gap:0.75rem;">
-          <button class="btn btn-secondary" id="btn-add-apiary">+ Novo Apiário</button>
+          <button class="btn btn-secondary" id="btn-add-apiary">+ Novo Núcleo</button>
           <button class="btn btn-primary" id="btn-add-hive">+ Nova Colmeia</button>
         </div>
       </div>
 
-      ${data.apiaries.length > 0 ? `
-        <div style="margin-bottom:1.5rem; display:grid; grid-template-columns: repeat(auto-fill, minmax(260px, 1fr)); gap:1rem;">
-          ${data.apiaries.map(ap => {
-            const count = data.hives.filter(h => h.apiaryId === ap.id).length;
-            return `
-              <div style="background:rgba(15,23,42,0.7); border:1px solid var(--slate-700); padding:1rem; border-radius:12px; display:flex; justify-content:space-between; align-items:center;">
-                <div>
-                  <strong style="color:var(--honey-400); font-size:1rem;">${ap.name}</strong>
-                  <div style="font-size:0.75rem; color:var(--slate-400);">${ap.location || 'Sem localização'}</div>
-                  <div style="font-size:0.75rem; color:var(--emerald-500); margin-top:0.2rem;">${count} colmeias instaladas</div>
-                </div>
-                <div style="display:flex; gap:0.4rem; align-items:center;">
-                  <button class="btn btn-secondary btn-edit-apiary" data-id="${ap.id}" style="padding:0.3rem 0.55rem; font-size:0.75rem;" title="Editar Apiário">
-                    ✏️
-                  </button>
-                  <button class="btn btn-danger btn-delete-apiary" data-id="${ap.id}" style="padding:0.3rem 0.6rem; font-size:0.75rem;" title="Excluir Apiário">
-                    🗑️
-                  </button>
-                </div>
-              </div>
-            `;
-          }).join('')}
-        </div>
-      ` : ''}
+      <div style="margin-bottom:1.5rem; display:grid; grid-template-columns: repeat(auto-fill, minmax(260px, 1fr)); gap:1rem;">
+        ${nucleiRowsHtml}
+      </div>
 
       <div style="display:flex; gap:1rem; margin-bottom:1.5rem; flex-wrap:wrap; background:rgba(15,23,42,0.5); padding:1rem; border-radius:12px;">
         <div class="form-group" style="margin:0; min-width:200px;">
-          <label>Filtrar por Apiário:</label>
+          <label>Filtrar por Núcleo:</label>
           <select class="form-control" id="filter-apiary">
-            <option value="all">Todos os Apiários</option>
-            ${data.apiaries.map(a => `<option value="${a.id}" ${selectedApiaryFilter === a.id ? 'selected' : ''}>${a.name}</option>`).join('')}
+            ${filterSelectOptionsHtml}
           </select>
         </div>
 
@@ -1075,73 +1209,30 @@ function renderApiariesView(data) {
       </div>
 
       <div class="hives-grid">
-        ${filteredHives.length === 0 ? `
-          <div style="grid-column: 1 / -1; text-align:center; padding:3rem; color:var(--slate-400);">
-            Nenhuma colmeia cadastrada. Clique no botão <strong>"+ Nova Colmeia"</strong> para cadastrar!
-          </div>
-        ` : filteredHives.map(hive => {
-          const apiary = data.apiaries.find(a => a.id === hive.apiaryId);
-          const queenColor = getQueenColorForYear(hive.queen.year);
-          return `
-            <div class="hive-card">
-              <div class="hive-card-header">
-                <div>
-                  <div class="hive-code">${hive.code}</div>
-                  <div class="hive-apiary">${apiary ? apiary.name : 'Sem Apiário'}</div>
-                </div>
-                <span class="status-badge ${hive.status === 'Ativa' ? 'status-ativa' : 'status-atencao'}">
-                  ${hive.status}
-                </span>
-              </div>
-
-              <div style="font-size:0.9rem; font-weight:600; margin-bottom:0.5rem;">${hive.name}</div>
-              <div style="font-size:0.8rem; color:var(--slate-400); margin-bottom:0.75rem;">
-                Modelo: ${hive.type} | Origem: ${hive.origin}
-              </div>
-
-              <div style="background:rgba(30,41,59,0.7); padding:0.6rem 0.8rem; border-radius:8px; margin-bottom:0.75rem; display:flex; align-items:center; justify-content:space-between;">
-                <div>
-                  <div style="font-size:0.75rem; color:var(--slate-400);">Linhagem da Rainha</div>
-                  <div style="font-size:0.8rem; font-weight:600;">${hive.queen.origin}</div>
-                </div>
-                <span class="queen-badge" style="background:${hive.queen.color || queenColor.color}; color:${queenColor.textColor};">
-                  👑 Ano ${hive.queen.year}
-                </span>
-              </div>
-
-              <div class="hive-metrics">
-                <div class="hive-metric-item">
-                  <span>Quadros Ninho</span>
-                  <strong>${hive.framesBrood} / 10</strong>
-                </div>
-                <div class="hive-metric-item">
-                  <span>Melgueiras</span>
-                  <strong>${hive.supersCount} un</strong>
-                </div>
-                <div class="hive-metric-item">
-                  <span>Mansidão</span>
-                  <strong>${'⭐'.repeat(hive.temperament)} (${hive.temperament}/5)</strong>
-                </div>
-                <div class="hive-metric-item">
-                  <span>Saúde General</span>
-                  <strong style="color:${hive.healthScore > 80 ? 'var(--emerald-500)' : 'var(--rose-500)'};">${hive.healthScore}%</strong>
-                </div>
-              </div>
-
-              <div style="display:flex; gap:0.5rem; margin-top:1rem;">
-                <button class="btn btn-secondary btn-edit-hive" data-id="${hive.id}" style="flex:1; padding:0.4rem; font-size:0.8rem;">
-                  ✏️ Editar Colmeia
-                </button>
-                <button class="btn btn-danger btn-delete-hive" data-id="${hive.id}" style="padding:0.4rem 0.75rem; font-size:0.8rem;">
-                  🗑️
-                </button>
-              </div>
-            </div>
-          `;
-        }).join('')}
+        ${hiveGridHtml}
       </div>
     </div>
   `;
+}
+
+function bindInspectionsEvents(data) {
+  document.getElementById('btn-new-inspection')?.addEventListener('click', () => {
+    if (data.hives.length === 0) {
+      alert('Cadastre primeiro uma colmeia para registrar uma inspeção!');
+    } else {
+      openInspectionModal(data);
+    }
+  });
+
+  document.querySelectorAll('.btn-delete-inspection').forEach(btn => {
+    btn.addEventListener('click', () => {
+      const id = btn.getAttribute('data-id');
+      if (confirm('Excluir este registro de inspeção?')) {
+        ApisStorage.deleteInspection(id);
+        renderApp();
+      }
+    });
+  });
 }
 
 function bindApiariesEvents(data) {
@@ -1161,7 +1252,7 @@ function bindApiariesEvents(data) {
 
   document.getElementById('btn-add-hive')?.addEventListener('click', () => {
     if (data.apiaries.length === 0) {
-      alert('Por favor, cadastre primeiro pelo menos um Apiário!');
+      alert('Por favor, cadastre primeiro pelo menos um Núcleo de Produção!');
       openApiaryModal();
     } else {
       openHiveModal(data);
@@ -1179,7 +1270,7 @@ function bindApiariesEvents(data) {
   document.querySelectorAll('.btn-delete-apiary').forEach(btn => {
     btn.addEventListener('click', () => {
       const apiaryId = btn.getAttribute('data-id');
-      if (confirm('Tem certeza que deseja excluir este apiário e suas colmeias associadas?')) {
+      if (confirm('Tem certeza que deseja excluir este núcleo e suas colmeias associadas?')) {
         ApisStorage.deleteApiary(apiaryId);
         renderApp();
       }
@@ -1205,93 +1296,6 @@ function bindApiariesEvents(data) {
   });
 }
 
-function renderInspectionsView(data) {
-  return `
-    <div class="glass-panel">
-      <div class="section-header">
-        <div>
-          <h2 class="section-title">📋 Inspeções de Campo</h2>
-          <p style="color:var(--slate-400); font-size:0.9rem;">Histórico de revisões periódicas do apiário.</p>
-        </div>
-        <button class="btn btn-primary" id="btn-new-inspection">+ Registrar Inspeção</button>
-      </div>
-
-      <div class="table-responsive">
-        ${data.inspections.length === 0 ? `
-          <div style="text-align:center; padding:3rem; color:var(--slate-400);">
-            Nenhuma inspeção realizada ainda.
-          </div>
-        ` : `
-          <table class="data-table">
-            <thead>
-              <tr>
-                <th>Data</th>
-                <th>Colmeia</th>
-                <th>Inspetor</th>
-                <th>Rainha & Crias</th>
-                <th>Alimento</th>
-                <th>Pragas / Sanidade</th>
-                <th>Ações Tomadas</th>
-                <th>Ações</th>
-              </tr>
-            </thead>
-            <tbody>
-              ${data.inspections.map(insp => {
-                const hive = data.hives.find(h => h.id === insp.hiveId);
-                return `
-                  <tr>
-                    <td><strong>${insp.date}</strong></td>
-                    <td>${hive ? `${hive.code} (${hive.name})` : 'Colmeia Excluída'}</td>
-                    <td>${insp.inspector}</td>
-                    <td>
-                      ${insp.queenSpotted ? '<span style="color:var(--emerald-500);">👑 Rainha Vista</span>' : '<span style="color:var(--slate-400);">👑 Não Vista</span>'}<br>
-                      <small>Ovos/Larvas: ${insp.eggsPresent ? '✅ Sim' : '❌ Não'}</small><br>
-                      ${insp.queenCellsSpotted ? '<strong style="color:var(--rose-500);">🚨 Realeiras!</strong>' : ''}
-                    </td>
-                    <td>
-                      <span class="tag-badge" style="font-size:0.75rem;">${insp.foodReserves}</span>
-                    </td>
-                    <td>${insp.pestsFound}</td>
-                    <td>
-                      <ul style="padding-left:1rem; font-size:0.8rem;">
-                        ${(insp.actionsTaken || []).map(a => `<li>${a}</li>`).join('')}
-                      </ul>
-                    </td>
-                    <td>
-                      <button class="btn btn-danger btn-delete-inspection" data-id="${insp.id}" style="padding:0.3rem 0.6rem; font-size:0.75rem;">
-                        🗑️
-                      </button>
-                    </td>
-                  </tr>
-                `;
-              }).join('')}
-            </tbody>
-          </table>
-        `}
-      </div>
-    </div>
-  `;
-}
-
-function bindInspectionsEvents(data) {
-  document.getElementById('btn-new-inspection')?.addEventListener('click', () => {
-    if (data.hives.length === 0) {
-      alert('Cadastre primeiro uma colmeia para registrar uma inspeção!');
-    } else {
-      openInspectionModal(data);
-    }
-  });
-
-  document.querySelectorAll('.btn-delete-inspection').forEach(btn => {
-    btn.addEventListener('click', () => {
-      const id = btn.getAttribute('data-id');
-      if (confirm('Excluir este registro de inspeção?')) {
-        ApisStorage.deleteInspection(id);
-        renderApp();
-      }
-    });
-  });
-}
 
 function renderHarvestView(data) {
   const totalValue = data.harvests.reduce((acc, h) => {
@@ -1382,11 +1386,12 @@ function renderHarvestView(data) {
 }
 
 function bindHarvestEvents(data) {
-  document.getElementById('btn-new-harvest')?.addEventListener('click', () => {
+  document.getElementById('btn-add-hive')?.addEventListener('click', () => {
     if (data.apiaries.length === 0) {
-      alert('Cadastre primeiro um apiário antes de registrar uma colheita!');
+      alert('Por favor, cadastre primeiro pelo menos um Núcleo de Produção!');
+      openApiaryModal();
     } else {
-      openHarvestModal(data);
+      openHiveModal(data);
     }
   });
 
@@ -1403,26 +1408,26 @@ function bindHarvestEvents(data) {
 
 function renderCalendarView() {
   const months = [
-    { name: 'Janeiro', season: 'Verão', activity: 'Manutenção de Melgueiras & Colheita da Florada de Verão', flora: 'Eucalipto, Silvestre' },
-    { name: 'Fevereiro', season: 'Verão', activity: 'Última extração de mel da safra principal', flora: 'Vassourinha, Assa-Peixe' },
-    { name: 'Março', season: 'Outono', activity: 'Redução de alvados, controle de formigas e avaliação de reservas', flora: 'Cipó-Uva' },
-    { name: 'Abril', season: 'Outono', activity: 'Início da Alimentação Proteica e Energética (Xarope 1:1)', flora: 'Escassez (Entre-safra)' },
-    { name: 'Maio', season: 'Outono', activity: 'Monitoramento sanitário contra Varroa e Traça-da-cera', flora: 'Flores do Mato' },
-    { name: 'Junho', season: 'Inverno', activity: 'Proteção contra ventos frios, fusão de enxames fracos', flora: 'Bracatinga (em algumas regiões)' },
-    { name: 'Julho', season: 'Inverno', activity: 'Revisão rápida em dias ensolarados, preparo de favos novos', flora: 'Eucalipto de Inverno' },
-    { name: 'Agosto', season: 'Primavera Próxima', activity: 'Estimulação de postura da rainha (Xarope 2:1 + Promotor)', flora: 'Início das floradas nativas' },
-    { name: 'Setembro', season: 'Primavera', activity: 'Expansão do ninho, introdução de cera alveolada, prevenção de enxameação', flora: 'Laranjeira, Frutíferas' },
-    { name: 'Outubro', season: 'Primavera', activity: 'Colocação das primeiras melgueiras da grande florada', flora: 'Laranjeira, Silvestre' },
-    { name: 'Novembro', season: 'Primavera', activity: 'Acompanhamento da operculação dos favos de mel', flora: 'Alecrim-do-Campo' },
-    { name: 'Dezembro', season: 'Verão', activity: 'Pico de colheita de Mel e Própolis Verde', flora: 'Florada Plena Silvestre' }
+    { name: 'Janeiro', season: 'Início das Chuvas', activity: 'Revisão e limpeza de colmeias; instalação de novas caixas para capturar enxames migratórios.', flora: 'Marmeleiro, Velame, Ervas nativas' },
+    { name: 'Fevereiro', season: 'Período Chuvoso', activity: 'Acompanhamento do desenvolvimento da cria; monitoramento de pragas (traças e formigas) devido à umidade.', flora: 'Marmeleiro, Jitirana, Malva' },
+    { name: 'Março', season: 'Período Chuvoso', activity: 'Monitoramento do espaço do ninho; introdução de cera alveolada para expansão conforme a colônia cresce.', flora: 'Marmeleiro(Final), Angico, Caatinga Plena' },
+    { name: 'Abril', season: 'Pico das Chuvas', activity: 'Manejo de espaço; colocação das primeiras melgueiras nos enxames mais fortes e populosos.', flora: 'Jurema Preta, Aroeira, Malva' },
+    { name: 'Maio', season: 'Fim das Chuvas', activity: 'Início da colheita do mel da florada do Marmeleiro; monitoramento do peso das melgueiras.', flora: 'Bamburral, Vassorinha de Botão, Malva' },
+    { name: 'Junho', season: 'Início da Seca', activity: 'Extração e processamento de mel; preparo de melgueiras vazias para as próximas floradas arbóreas.', flora: 'Bamburral, Aroeira, Unha de Gato, Malva, Vassorinha de Botão' },
+    { name: 'Julho', season: 'Período Seco', activity: 'Grande colheita de mel e início da produção/coleta de própolis nas áreas úmidas ou de transição.', flora: 'Cajueiro (início), Silvestre da Caatinga' },
+    { name: 'Agosto', season: 'Período Seco', activity: 'Pico da florada do cajueiro; revisões focadas na coleta de mel; controle de ventos fortes nos apiários.', flora: 'Cajueiro (pleno), Trancador, Jameleiro' },
+    { name: 'Setembro', season: 'Período Seco', activity: 'Últimas extrações da safra do cajueiro; redução de alvados e preparação para o início da entre-safra severa.', flora: 'Cajueiro (final), Broca, Erva de Passarinho' },
+    { name: 'Outubro', season: 'Entre-safra Crítica', activity: 'Início da alimentação artificial de subsistência (xarope de açúcar/promotores); união de enxames fracos.', flora: 'Escassez severa (Caatinga seca)' },
+    { name: 'Novembro', season: 'Entre-safra Crítica', activity: 'Alimentação artificial proteica e energética rigorosa; sombreamento de colmeias contra o calor extremo.', flora: 'Escassez severa / Somente polem de subsistência' },
+    { name: 'Dezembro', season: 'Pré-safra', activity: 'Manutenção de equipamentos; derretimento de ceras velhas; preparação final para o retorno das chuvas.', flora: 'Juazeiro, início de brotações nativas pós-primeiras chuvas' }
   ];
 
   return `
     <div class="glass-panel">
       <div class="section-header">
         <div>
-          <h2 class="section-title">🌸 Calendário Floral & Manejo Apícola</h2>
-          <p style="color:var(--slate-400); font-size:0.9rem;">Planejamento anual de alimentação pré-safra, colheita e tratamentos para <em>Apis mellifera</em>.</p>
+          <h2 class="section-title">🌸 Calendário Floral & Manejo Apícola (Ceará/Nordeste)</h2>
+          <p style="color:var(--slate-400); font-size:0.9rem;">Planejamento anual adaptado ao semiárido: alimentação na entre-safra seca e colheita nas floradas nativas e de sequeiro.</p>
         </div>
       </div>
 
@@ -1447,8 +1452,24 @@ function renderCalendarView() {
 }
 
 function renderAnalyticsView(data) {
-  const totalHoney = data.harvests.filter(h => h.product === 'Mel').reduce((a, b) => a + (parseFloat(b.quantityKg) || 0), 0);
-  const totalPropolis = data.harvests.filter(h => h.product.includes('Própolis')).reduce((a, b) => a + (parseFloat(b.quantityKg) || 0), 0);
+  const totalHoney = data.harvests.filter(h => h.product === 'Mel').reduce((acc, curr) => acc + (parseFloat(curr.quantityKg) || 0), 0);
+  const totalPropolis = data.harvests.filter(h => h.product.includes('Própolis')).reduce((acc, curr) => acc + (parseFloat(curr.quantityKg) || 0), 0);
+  
+  const colorCodes = ApisStorage.getQueenColorCodes();
+  
+  // Monta as linhas de forma 100% segura usando concatenação clássica
+  let queenRowsHtml = '';
+  for (let i = 0; i < colorCodes.length; i++) {
+    const qc = colorCodes[i];
+    const count = (data.queens || []).filter(q => qc.years.includes(parseInt(q.year, 10))).length;
+    
+    queenRowsHtml += '<div style="display:flex; align-items:center; justify-content:space-between; background:rgba(30,41,59,0.4); padding:0.5rem; border-radius:8px; margin-bottom:0.5rem;">' +
+      '<span class="queen-badge" style="background:' + qc.color + '; color:' + qc.textColor + '; padding:0.35rem 0.75rem; border-radius:12px; font-weight:700; font-size:0.8rem;">' +
+        qc.label +
+      '</span>' +
+      '<strong style="color:#fff;">' + count + ' rainhas</strong>' +
+    '</div>';
+  }
 
   return `
     <div class="glass-panel">
@@ -1456,10 +1477,10 @@ function renderAnalyticsView(data) {
         <h2 class="section-title">📊 Análise de Desempenho e Saúde</h2>
       </div>
 
-      <div style="display:grid; grid-template-columns: 1fr 1fr; gap:1.5rem;">
+      <div style="display:grid; grid-template-columns: repeat(auto-fit, minmax(300px, 1fr)); gap:1.5rem;">
         <div style="background:rgba(15,23,42,0.6); padding:1.5rem; border-radius:var(--radius-lg); border:1px solid var(--slate-700);">
           <h3 style="color:var(--honey-400); margin-bottom:1rem; font-size:1.1rem;">🍯 Rendimento por Produto</h3>
-          <ul style="list-style:none; display:flex; flex-direction:column; gap:0.75rem;">
+          <ul style="list-style:none; display:flex; flex-direction:column; gap:0.75rem; padding:0;">
             <li style="display:flex; justify-content:space-between; border-bottom:1px solid var(--slate-700); padding-bottom:0.5rem;">
               <span>Mel Total:</span>
               <strong>${totalHoney.toFixed(1)} kg</strong>
@@ -1473,18 +1494,8 @@ function renderAnalyticsView(data) {
 
         <div style="background:rgba(15,23,42,0.6); padding:1.5rem; border-radius:var(--radius-lg); border:1px solid var(--slate-700);">
           <h3 style="color:var(--honey-400); margin-bottom:1rem; font-size:1.1rem;">👑 Idade do Enxame (Ano da Rainha)</h3>
-          <div style="display:flex; flex-direction:column; gap:0.75rem;">
-            ${QUEEN_COLOR_CODES.map(qc => {
-              const count = data.queens.filter(q => qc.years.includes(parseInt(q.year, 10))).length;
-              return `
-                <div style="display:flex; align-items:center; justify-content:space-between;">
-                  <span class="queen-badge" style="background:${qc.color}; color:${qc.textColor};">
-                    ${qc.label}
-                  </span>
-                  <strong>${count} rainhas</strong>
-                </div>
-              `;
-            }).join('')}
+          <div style="display:flex; flex-direction:column; gap:0.25rem;">
+            ${queenRowsHtml}
           </div>
         </div>
       </div>
@@ -1808,49 +1819,45 @@ function openHarvestModal(data = ApisStorage.getAll(), existingHarvest = null) {
 function openApiaryModal(existingApiary = null) {
   const isEdit = !!existingApiary;
   const ap = existingApiary || {};
+  const infoApicultor = ApisStorage.getApicultorInfo() || { apiarioPrincipal: 'Geral' };
 
   const html = `
     <form id="form-add-apiary" class="form-grid">
+      <div class="form-group" style="grid-column:1 / -1;">
+        <label>Apiário Vinculado de Origem:</label>
+        <input type="text" class="form-control" value="${infoApicultor.apiarioPrincipal}" style="background:rgba(255,255,255,0.05); color:var(--slate-400); cursor:not-allowed;" readonly>
+      </div>
       <div class="form-group">
-        <label>Nome do Apiário:</label>
-        <input type="text" id="ap-name" class="form-control" value="${ap.name || ''}" placeholder="Ex: Apiário Vale das Abelhas" required>
+        <label>Nome do Novo Núcleo:</label>
+        <input type="text" id="ap-name" class="form-control" value="${ap.name || ''}" placeholder="Ex: Núcleo A - Baixada" required>
       </div>
       <div class="form-group">
         <label>Localização / Coordenadas:</label>
-        <input type="text" id="ap-location" class="form-control" value="${ap.location || ''}" placeholder="Ex: Sítio São João - Lote 12">
+        <input type="text" id="ap-location" class="form-control" value="${ap.location || ''}" placeholder="Ex: Setor Norte - Lote 12">
       </div>
       <div class="form-group" style="grid-column:1 / -1;">
-        <label>Notas / Descrição da Flora Próxima:</label>
-        <textarea id="ap-notes" class="form-control" rows="2" placeholder="Ex: Próximo a florada de eucalipto e mata nativa.">${ap.notes || ''}</textarea>
+        <label>Notas da Flora Néctar-Polinífera Próxima:</label>
+        <textarea id="ap-notes" class="form-control" rows="2" placeholder="Ex: Próximo à florada de marmeleiro e jurema.">${ap.notes || ''}</textarea>
       </div>
       <div style="grid-column:1 / -1; display:flex; justify-content:flex-end; gap:0.75rem; margin-top:1rem;">
         <button type="button" class="btn btn-secondary" id="btn-cancelar-apiary">Cancelar</button>
-        <button type="submit" class="btn btn-primary">${isEdit ? 'Salvar Alterações' : 'Salvar Apiário'}</button>
+        <button type="submit" class="btn btn-primary">${isEdit ? 'Salvar Alterações' : 'Salvar Núcleo'}</button>
       </div>
     </form>
   `;
 
-  openModal(isEdit ? `🏞️ Editar Apiário: ${ap.name}` : '🏞️ Cadastrar Novo Apiário', html);
-
+  openModal(isEdit ? `✏️ Editar Núcleo: ${ap.name}` : '🏞️ Cadastrar Novo Núcleo de Produção', html);
   document.getElementById('btn-cancelar-apiary')?.addEventListener('click', closeModal);
 
-  document.getElementById('form-add-apiary')?.addEventListener('submit', (e) => {
+  document.getElementById('form-add-apiary').addEventListener('submit', (e) => {
     e.preventDefault();
-
     const apiaryData = {
       id: isEdit ? ap.id : undefined,
       name: document.getElementById('ap-name').value.trim(),
       location: document.getElementById('ap-location').value.trim(),
       notes: document.getElementById('ap-notes').value.trim()
     };
-
     if (isEdit && ap.createdAt) apiaryData.createdAt = ap.createdAt;
-
-    if (!apiaryData.name) {
-      alert('Informe o nome do apiário.');
-      return;
-    }
-
     ApisStorage.saveApiary(apiaryData);
     closeModal();
     renderApp();
@@ -1862,13 +1869,13 @@ function openHiveModal(data = ApisStorage.getAll(), existingHive = null) {
   const h = existingHive || {};
   const currentYear = new Date().getFullYear();
 
-  // Mapeia as opções de apiários sem quebrar as strings do JavaScript
   let apiaryOptions = '';
   if (data.apiaries && data.apiaries.length > 0) {
-    data.apiaries.forEach(a => {
+    for (let i = 0; i < data.apiaries.length; i++) {
+      const a = data.apiaries[i];
       const selected = h.apiaryId === a.id ? 'selected' : '';
-      apiaryOptions += `<option value="${a.id}" ${selected}>${a.name}</option>`;
-    });
+      apiaryOptions += '<option value="' + a.id + '" ' + selected + '>' + a.name + '</option>';
+    }
   }
 
   const html = `
@@ -1882,9 +1889,9 @@ function openHiveModal(data = ApisStorage.getAll(), existingHive = null) {
         <input type="text" id="hv-name" class="form-control" value="${h.name || 'Enxame Forte'}" required>
       </div>
       <div class="form-group">
-        <label>Apiário Alocado:</label>
+        <label>Núcleo Alocado:</label>
         <select id="hv-apiaryId" class="form-control" required>
-          <option value="">Selecione um Apiário...</option>
+          <option value="">Selecione um Núcleo...</option>
           ${apiaryOptions}
         </select>
       </div>
@@ -1940,7 +1947,6 @@ function openHiveModal(data = ApisStorage.getAll(), existingHive = null) {
 
   openModal(isEdit ? `✏️ Editar Colmeia: ${h.code}` : '📦 Cadastrar Nova Colmeia', html);
 
-  // Corrige a ação do botão Cancelar
   document.getElementById('btn-cancelar-colmeia').addEventListener('click', closeModal);
 
   document.getElementById('form-edit-hive').addEventListener('submit', (e) => {

@@ -8,7 +8,7 @@
   <link rel="stylesheet" href="./css/styles.css">
   <link rel="manifest" href="./manifest.json">
   <meta name="theme-color" content="#f59e0b">
-  <link rel="icon" type="image/png" href="./assets/icon.png">
+  <link class="brand-logo-icon" rel="icon" type="image/png" href="./assets/icon.png">
   <script>
     // Registro e Verificação de Atualização Automática
     if ('serviceWorker' in navigator) {
@@ -69,7 +69,8 @@
         <img src="./assets/icon.png" alt="ApisApp Logo" class="brand-logo-img" style="width:44px; height:44px; border-radius:12px; object-fit:cover; border:2px solid var(--honey-400); box-shadow:0 0 10px rgba(245,158,11,0.4);">
         <div class="brand-text">
           <h1>ApisApp Pro</h1>
-          <span>Gestão de Abelhas Apis mellifera v1.0.2</span>
+          <!-- ALTERAÇÃO DE VERSÃO SUPERIOR -->
+          <span>Gestão de Abelhas Apis mellifera v1.0.5</span>
         </div>
       </a>
 
@@ -80,8 +81,10 @@
           </button>
         </li>
         <li class="nav-item">
+          <!-- CORREÇÃO DO MENU PEDIDA NA MENSAGEM ANTERIOR -->
           <button data-tab="apiaries" id="nav-btn-apiaries">
-            🏞️ Apiários & Colmeias
+
+            |🏞️| Núcleos & Colmeias
           </button>
         </li>
         <li class="nav-item">
@@ -148,8 +151,9 @@
     </main>
 
     <!-- Rodapé -->
+    <!-- ALTERAÇÃO DE CRÉDITOS E VERSÃO DO RODAPÉ -->
     <footer style="text-align:center; padding:1.5rem; color:var(--slate-400); font-size:0.8rem; border-top:1px solid var(--glass-border); margin-top:2rem;">
-      <p><strong>ApisApp Pro v1.0.2</strong> &copy; 2026 - Desenvolvido para Apicultura Racional de <em>Apis mellifera</em>.</p>
+      <p><strong>ApisApp Pro v1.0.5</strong> &copy; 2026 - Desenvolvido por <a href="#" style="color:var(--honey-400); text-decoration:none; font-weight:bold;" >Iranilson Gomes</a>.</p>
     </footer>
   </div>
 
