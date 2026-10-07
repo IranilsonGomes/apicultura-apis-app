@@ -1,12 +1,11 @@
-// Versionamento do Aplicativo ApisApp Pro
-const CACHE_NAME = 'apisapp-v1.0.4';
+// Versionamento do Aplicativo ApisApp Pro - Sincronizado com o App e HTML
+const CACHE_NAME = 'apisapp-v1.0.5';
 
 const ASSETS_TO_CACHE = [
   './',
   './index.html',
   './css/styles.css',
-  './js/storage.js',
-  './js/app.js',
+  './js/app.js', // Corrigido: Removido storage.js que já está unificado no seu app.js
   './manifest.json',
   './assets/icon.png'
 ];
@@ -15,9 +14,15 @@ self.addEventListener('install', (event) => {
   console.log('[Service Worker] Instalando nova versão:', CACHE_NAME);
   event.waitUntil(
     caches.open(CACHE_NAME).then((cache) => {
-      return cache.addAll(ASSETS_TO_CACHE);
+      // Usamos uma estratégia de cacheamento forçada para não travar se um arquivo falhar
+      return Promise.all(
+        ASSETS_TO_CACHE.map(url => {
+          return cache.add(url).catch(err => console.warn('[Service Worker] Erro ao cachear:', url, err));
+        })
+      );
     })
   );
+  // Força a ativação imediata do worker recém-instalado
   self.skipWaiting();
 });
 
@@ -35,14 +40,34 @@ self.addEventListener('activate', (event) => {
       );
     })
   );
+  // Garante que todas as abas abertas no celular usem a nova versão na mesma hora
   self.clients.claim();
 });
 
 self.addEventListener('fetch', (event) => {
+  // Ignora requisições de servidores externos (como Firebase ou APIs remotas de licença)
+  if (!event.request.url.startsWith(self.location.origin)) {
+    return;
+  }
+
   event.respondWith(
     caches.match(event.request).then((cachedResponse) => {
+      // Estratégia Network-First para o index.html (garante checagem de licença e atualizações)
+      if (event.request.mode === 'navigate') {
+        return fetch(event.request)
+          .then((networkResponse) => {
+            if (networkResponse && networkResponse.status === 200) {
+              const responseToCache = networkResponse.clone();
+              caches.open(CACHE_NAME).then((cache) => cache.put(event.request, responseToCache));
+            }
+            return networkResponse;
+          })
+          .catch(() => cachedResponse || caches.match('./index.html'));
+      }
+
+      // Estratégia Stale-While-Revalidate para os demais arquivos locais (css, js, imagens)
       const fetchPromise = fetch(event.request).then((networkResponse) => {
-        if (networkResponse && networkResponse.status === 200 && networkResponse.type === 'basic') {
+        if (networkResponse && networkResponse.status === 200) {
           const responseToCache = networkResponse.clone();
           caches.open(CACHE_NAME).then((cache) => {
             cache.put(event.request, responseToCache);
@@ -50,9 +75,8 @@ self.addEventListener('fetch', (event) => {
         }
         return networkResponse;
       }).catch(() => {
-        if (event.request.mode === 'navigate') {
-          return caches.match('./index.html');
-        }
+        // Se estiver totalmente sem sinal (Offline)
+        return cachedResponse;
       });
 
       return cachedResponse || fetchPromise;

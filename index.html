@@ -10,19 +10,26 @@
   <meta name="theme-color" content="#f59e0b">
   <link class="brand-logo-icon" rel="icon" type="image/png" href="./assets/icon.png">
   <script>
-    // Registro e Verificação de Atualização Automática
+    // Registro e Verificação de Atualização Automática Avançada
     if ('serviceWorker' in navigator) {
       window.addEventListener('load', () => {
         navigator.serviceWorker.register('./sw.js').then((registration) => {
           console.log('[ApisApp] Service Worker registrado. Verificando atualizações...');
 
+          // Força a verificação de nova versão no servidor
           registration.update();
 
+          // Checa atualizações de segundo plano toda vez que abrir o app no celular
           document.addEventListener('visibilitychange', () => {
             if (document.visibilityState === 'visible') {
               registration.update();
             }
           });
+
+          // Caso já exista uma versão baixada esperando na fila, exibe o banner
+          if (registration.waiting) {
+            showUpdateBanner();
+          }
 
           registration.addEventListener('updatefound', () => {
             const newWorker = registration.installing;
@@ -37,6 +44,7 @@
           });
         }).catch(err => console.log('Erro ao registrar Service Worker:', err));
 
+        // Substituição do controlador sem quebras ou perdas do LocalStorage
         let refreshing = false;
         navigator.serviceWorker.addEventListener('controllerchange', () => {
           if (!refreshing) {
@@ -69,7 +77,6 @@
         <img src="./assets/icon.png" alt="ApisApp Logo" class="brand-logo-img" style="width:44px; height:44px; border-radius:12px; object-fit:cover; border:2px solid var(--honey-400); box-shadow:0 0 10px rgba(245,158,11,0.4);">
         <div class="brand-text">
           <h1>ApisApp Pro</h1>
-          <!-- ALTERAÇÃO DE VERSÃO SUPERIOR -->
           <span>Gestão de Abelhas Apis mellifera v1.0.5</span>
         </div>
       </a>
@@ -81,10 +88,9 @@
           </button>
         </li>
         <li class="nav-item">
-          <!-- CORREÇÃO DO MENU PEDIDA NA MENSAGEM ANTERIOR -->
+          <!-- CORREÇÃO DE TEXTO DO MENU -->
           <button data-tab="apiaries" id="nav-btn-apiaries">
-
-            |🏞️| Núcleos & Colmeias
+            细腻 Núcleos & Colmeias
           </button>
         </li>
         <li class="nav-item">
@@ -151,9 +157,8 @@
     </main>
 
     <!-- Rodapé -->
-    <!-- ALTERAÇÃO DE CRÉDITOS E VERSÃO DO RODAPÉ -->
     <footer style="text-align:center; padding:1.5rem; color:var(--slate-400); font-size:0.8rem; border-top:1px solid var(--glass-border); margin-top:2rem;">
-      <p><strong>ApisApp Pro v1.0.5</strong> &copy; 2026 - Desenvolvido por <a href="#" style="color:var(--honey-400); text-decoration:none; font-weight:bold;" >Iranilson Gomes</a>.</p>
+      <p><strong>ApisApp Pro v1.0.5</strong> &copy; 2026 - Desenvolvido por <a href="#" style="color:var(--honey-400); text-decoration:none; font-weight:bold;">Iranilson Gomes</a>.</p>
     </footer>
   </div>
 
