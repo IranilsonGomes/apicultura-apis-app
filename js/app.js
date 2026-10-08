@@ -9,8 +9,8 @@
 // ==========================================================================
 
 const STORAGE_KEYS = {
-  APICULTOR_INFO: 'apisapp_apicultor_info', // Salva { nomeApicultor, apiarioPrincipal }
-  APIARIES: 'apisapp_apiaries', // Passará a gerenciar os núcleos
+  APICULTOR_INFO: 'apisapp_apicultor_info',
+  APIARIES: 'apisapp_apiaries',
   HIVES: 'apisapp_hives',
   QUEENS: 'apisapp_queens',
   INSPECTIONS: 'apisapp_inspections',
@@ -18,7 +18,8 @@ const STORAGE_KEYS = {
   SETTINGS: 'apisapp_settings',
   LAST_BACKUP_DATE: 'apisapp_last_backup_date',
   BACKUPS_HISTORY: 'apisapp_backups_history',
-  QUEEN_COLORS: 'apisapp_queen_colors'
+  QUEEN_COLORS: 'apisapp_queen_colors',
+  BOX_MODELS: 'apisapp_box_models' //
 };
 
 const DEFAULT_QUEEN_COLOR_CODES = [
@@ -38,7 +39,7 @@ const EMPTY_DATA = {
 };
 
 const ApisStorage = {
-  init() {
+ init() {
     // Inicializa a estrutura básica com segurança sem apagar o cadastro do produtor
     if (!localStorage.getItem(STORAGE_KEYS.APIARIES)) {
       localStorage.setItem(STORAGE_KEYS.APIARIES, JSON.stringify([]));
@@ -50,7 +51,60 @@ const ApisStorage = {
     if (!localStorage.getItem(STORAGE_KEYS.QUEEN_COLORS)) {
       localStorage.setItem(STORAGE_KEYS.QUEEN_COLORS, JSON.stringify(DEFAULT_QUEEN_COLOR_CODES));
     }
+    // Inicializa os modelos de caixas padrão caso não existam no localStorage
+    if (!localStorage.getItem(STORAGE_KEYS.BOX_MODELS)) {
+      const defaultModels = ['Langstroth', 'Schenck', 'Top Bar'];
+      localStorage.setItem(STORAGE_KEYS.BOX_MODELS, JSON.stringify(defaultModels));
+    }
     this.checkAutoBackup();
+  },
+
+getBoxModels() {
+    return JSON.parse(localStorage.getItem(STORAGE_KEYS.BOX_MODELS) || '[]');
+  },
+
+  saveBoxModel(modelName) {
+    const list = this.getBoxModels();
+    const trimmed = modelName.trim();
+    if (trimmed && !list.includes(trimmed)) {
+      list.push(trimmed);
+      localStorage.setItem(STORAGE_KEYS.BOX_MODELS, JSON.stringify(list));
+      return true;
+    }
+    return false;
+  },
+
+  deleteBoxModel(modelName) {
+    let list = this.getBoxModels();
+    list = list.filter(m => m !== modelName);
+    localStorage.setItem(STORAGE_KEYS.BOX_MODELS, JSON.stringify(list));
+  },
+
+  // Renomeia um modelo e atualiza as colmeias que já usavam o nome antigo.
+  // Retorna: 'ok' | 'empty' | 'duplicate' | 'notfound'
+  renameBoxModel(oldName, newName) {
+    const trimmed = String(newName || '').trim();
+    if (!trimmed) return 'empty';
+    const list = this.getBoxModels();
+    const idx = list.indexOf(oldName);
+    if (idx === -1) return 'notfound';
+    if (trimmed === oldName) return 'ok';
+    if (list.some(m => m.toLowerCase() === trimmed.toLowerCase())) return 'duplicate';
+
+    list[idx] = trimmed;
+    localStorage.setItem(STORAGE_KEYS.BOX_MODELS, JSON.stringify(list));
+
+    const hives = this.getHives();
+    let changed = false;
+    hives.forEach(h => {
+      if (h.type === oldName) { h.type = trimmed; changed = true; }
+    });
+    if (changed) localStorage.setItem(STORAGE_KEYS.HIVES, JSON.stringify(hives));
+    return 'ok';
+  },
+
+  countHivesUsingModel(modelName) {
+    return this.getHives().filter(h => h.type === modelName).length;
   },
 
   getApicultorInfo() {
@@ -934,46 +988,125 @@ function renderDashboardView(data) {
     ? { label: 'Ótima para Voo & Revisão', color: 'var(--emerald-500)', icon: '☀️' }
     : { label: 'Cuidado (Vento/Frio)', color: 'var(--rose-500)', icon: '🌧️' };
 
-  let hivesRowsHtml = '';
-  if (data.hives.length === 0) {
-    hivesRowsHtml = `
-      <tr>
-        <td colspan="6" style="text-align:center; padding:2rem; color:var(--slate-400);">
-          Nenhum núcleo ou colmeia cadastrado ainda.
-        </td>
-      </tr>
+  // --- CONSTRUÇÃO DO CONSOLIDADO POR NÚCLEO COM OPÇÃO DE DETALHAMENTO ---
+  let nucleiConsolidatedHtml = '';
+  
+  if (data.apiaries.length === 0) {
+    nucleiConsolidatedHtml = `
+      <div style="text-align:center; padding:2rem; color:var(--slate-400);">
+        Nenhum núcleo ou colmeia cadastrado ainda para consolidação.
+      </div>
     `;
   } else {
-    for (let i = 0; i < data.hives.length; i++) {
-      const h = data.hives[i];
-      const ap = data.apiaries.find(a => a.id === h.apiaryId);
-      const qColor = getQueenColorForYear(h.queen?.year || new Date().getFullYear());
-      hivesRowsHtml += `
-        <tr>
-          <td><strong>${h.code}</strong> (${h.name})</td>
-          <td>${ap ? ap.name : 'Sem Núcleo'}</td>
-          <td>
-            <span class="queen-badge" style="background:${h.queen?.color || qColor.color}; color:${qColor.textColor};">
-              👑 ${h.queen?.year || 'N/A'}
-            </span>
-          </td>
-          <td>${h.framesBrood} N / ${h.framesHoney} M (${h.supersCount} Melgueiras)</td>
-          <td>
-            <strong style="color:${h.healthScore > 80 ? 'var(--emerald-500)' : 'var(--honey-500)'};">
-              ${h.healthScore}%
-            </strong>
-          </td>
-          <td>
-            <span class="status-badge ${h.status === 'Ativa' ? 'status-ativa' : 'status-atencao'}">
-              ${h.status}
-            </span>
-          </td>
-        </tr>
+    for (let i = 0; i < data.apiaries.length; i++) {
+      const ap = data.apiaries[i];
+      const hivesInAp = data.hives.filter(h => h.apiaryId === ap.id);
+      
+      // Totais somados do Núcleo
+      const boxCount = hivesInAp.length;
+      const supersSum = hivesInAp.reduce((acc, h) => acc + (parseInt(h.supersCount) || 0), 0);
+      const collectorsSum = hivesInAp.reduce((acc, h) => acc + (parseInt(h.propolisCollectors) || 0), 0);
+
+      // Validação das coordenadas (verifica se existem números válidos separados por vírgula)
+      const locStr = (ap.location || '').trim();
+      const hasCoordinates = locStr && /^[-+]?([1-8]?\d(\.\d+)?|90(\.0+)?),\s*[-+]?(180(\.0+)?|((1[0-7]\d)|([1-9]?\d))(\.\d+)?)$/.test(locStr);
+
+      // Botão do mapa: Só gera o HTML se possuir as coordenadas corretas no cadastro
+      const mapButtonHtml = hasCoordinates 
+        ? `<div style="display:flex; gap:0.4rem; flex-wrap:wrap;">
+             <button type="button" class="btn btn-secondary btn-view-dashboard-map" data-coords="${locStr}" data-name="${ap.name}" style="padding:0.4rem 0.6rem; font-size:0.8rem; background:rgba(59,130,246,0.15); color:#60a5fa; border:1px solid rgba(59,130,246,0.3);">🗺️ Ver no Mapa</button>
+             <button type="button" class="btn btn-primary btn-route-dashboard-map" data-coords="${locStr}" data-name="${ap.name}" style="padding:0.4rem 0.6rem; font-size:0.8rem; background:rgba(16,185,129,0.15); color:#34d399; border:1px solid rgba(16,185,129,0.3);">🚗 Ver rotas</button>
+           </div>`
+        : '';
+
+      // Linhas de detalhamento individual de cada caixa (escondidas por padrão)
+      let detailedRowsHtml = '';
+      if (boxCount === 0) {
+        detailedRowsHtml = `
+          <tr>
+            <td colspan="5" style="text-align:center; color:var(--slate-400); font-size:0.8rem; background:rgba(0,0,0,0.15);">
+              Nenhuma colmeia alocada neste núcleo.
+            </td>
+          </tr>
+        `;
+      } else {
+        for (let j = 0; j < hivesInAp.length; j++) {
+          const h = hivesInAp[j];
+          const qColor = getQueenColorForYear(h.queen?.year || new Date().getFullYear());
+          detailedRowsHtml += `
+            <tr style="background:rgba(15,23,42,0.3); font-size:0.85rem;">
+              <td style="padding-left:1.5rem;">🔹 <strong>${h.code}</strong> (${h.name})</td>
+              <td>
+                <span class="queen-badge" style="background:${h.queen?.color || qColor.color}; color:${qColor.textColor}; font-size:0.75rem; padding:0.15rem 0.4rem;">
+                  👑 ${h.queen?.year || 'N/A'}
+                </span>
+              </td>
+              <td>${h.framesBrood} N / ${h.framesHoney} M (${h.supersCount} Melg.)</td>
+              <td>${h.propolisProducer ? `🌿 Sim (${h.propolisCollectors})` : '❌ Não'}</td>
+              <td>
+                <span class="status-badge ${h.status === 'Ativa' ? 'status-ativa' : 'status-atencao'}" style="font-size:0.7rem; padding:0.15rem 0.4rem;">
+                  ${h.status}
+                </span>
+              </td>
+            </tr>
+          `;
+        }
+      }
+
+      nucleiConsolidatedHtml += `
+        <div style="background:rgba(30,41,59,0.3); border:1px solid var(--slate-700); border-radius:12px; padding:1.25rem; margin-bottom:1rem;">
+          <div style="display:flex; justify-content:space-between; align-items:center; flex-wrap:wrap; gap:1rem;">
+            <div>
+              <h4 style="color:var(--honey-400); font-size:1.1rem; margin:0;">📍 ${ap.name}</h4>
+              <div style="margin-top:0.4rem; display:flex; gap:0.4rem;">
+                ${mapButtonHtml}
+              </div>
+            </div>
+            
+            <!-- Indicadores Consolidados do Núcleo -->
+            <div style="display:flex; gap:1.25rem; background:rgba(15,23,42,0.5); padding:0.5rem 1rem; border-radius:8px; border:1px solid rgba(255,255,255,0.05);">
+              <div style="text-align:center;">
+                <div style="font-size:0.7rem; color:var(--slate-400); text-transform:uppercase;">Caixas</div>
+                <strong style="color:#fff; font-size:1.1rem;">${boxCount}</strong>
+              </div>
+              <div style="text-align:center; border-left:1px solid var(--slate-700); padding-left:1.25rem;">
+                <div style="font-size:0.7rem; color:var(--slate-400); text-transform:uppercase;">Melgueiras</div>
+                <strong style="color:var(--honey-400); font-size:1.1rem;">${supersSum}</strong>
+              </div>
+              <div style="text-align:center; border-left:1px solid var(--slate-700); padding-left:1.25rem;">
+                <div style="font-size:0.7rem; color:var(--slate-400); text-transform:uppercase;">Coletores Própolis</div>
+                <strong style="color:var(--emerald-400); font-size:1.1rem;">${collectorsSum}</strong>
+              </div>
+            </div>
+
+            <button class="btn btn-secondary btn-toggle-details" data-target="details-${ap.id}" style="padding:0.4rem 0.8rem; font-size:0.8rem;">
+              👁️ Mostrar Detalhes
+            </button>
+          </div>
+
+          <!-- Tabela Expandível Oculta com Detalhamento por Caixa -->
+          <div id="details-${ap.id}" class="table-responsive" style="display:none; margin-top:1.25rem; border-top:1px dashed var(--slate-600); padding-top:0.75rem;">
+            <table class="data-table" style="margin:0;">
+              <thead>
+                <tr style="background:transparent; font-size:0.75rem;">
+                  <th style="padding-left:1.5rem;">Colmeia Individual</th>
+                  <th>Rainha</th>
+                  <th>Quadros / Melgueiras</th>
+                  <th>Própolis (Coletores)</th>
+                  <th>Status</th>
+                </tr>
+              </thead>
+              <tbody>
+                ${detailedRowsHtml}
+              </tbody>
+            </table>
+          </div>
+        </div>
       `;
     }
   }
 
-  return `
+   return `
     <div class="hero-card">
       <div class="hero-text">
         <h2>Gestão Inteligente de <span>Apicultura</span></h2>
@@ -1034,29 +1167,20 @@ function renderDashboardView(data) {
 
     <div style="display:grid; grid-template-columns: 2fr 1fr; gap:1.5rem; align-items:start;">
       <div class="glass-panel">
-        <div class="section-header">
-          <h3 class="section-title">📦 Status das Colmeias</h3>
+        <div class="section-header" style="margin-bottom:1.25rem;">
+          <div>
+            <h3 class="section-title">📊 Consolidado Estatístico por Núcleo</h3>
+            <p style="color:var(--slate-400); font-size:0.85rem; margin:0;">Acompanhe o balanço de materiais de produção agrupado.</p>
+          </div>
           <div style="display:flex; gap:0.5rem;">
             <button class="btn btn-secondary" id="btn-quick-apiary">+ Novo Núcleo</button>
             <button class="btn btn-primary" id="btn-quick-hive">+ Nova Colmeia</button>
           </div>
         </div>
-        <div class="table-responsive">
-          <table class="data-table">
-            <thead>
-              <tr>
-                <th>Código</th>
-                <th>Núcleo Alocado</th>
-                <th>Rainha (Ano/Cor)</th>
-                <th>Quadros (Ninho/Mel)</th>
-                <th>Saúde</th>
-                <th>Status</th>
-              </tr>
-            </thead>
-            <tbody>
-              ${hivesRowsHtml}
-            </tbody>
-          </table>
+        
+        <!-- Container dos Núcleos Consolidados Expandíveis -->
+        <div id="dashboard-nuclei-container">
+          ${nucleiConsolidatedHtml}
         </div>
       </div>
 
@@ -1073,7 +1197,7 @@ function renderDashboardView(data) {
           <div style="background:rgba(16,185,129,0.1); border-left:4px solid var(--emerald-500); padding:0.85rem; border-radius:8px;">
             <strong style="color:var(--emerald-500); font-size:0.85rem;">☁️ BACKUP AUTOMÁTICO NO DRIVE</strong>
             <p style="font-size:0.8rem; color:var(--slate-200); margin-top:0.25rem;">
-              O sistema salva automaticamente seus dados todos os dias. Ao ficar online, envie para seu Google Drive com 1 toque.
+              O sistema salva automaticamente seus dados todos os dias. Ao fique online, envie para seu Google Drive com 1 toque.
             </p>
           </div>
         </div>
@@ -1081,6 +1205,7 @@ function renderDashboardView(data) {
     </div>
   `;
 }
+
 
 function bindDashboardEvents(data) {
   document.getElementById('btn-quick-apiary')?.addEventListener('click', () => {
@@ -1095,7 +1220,193 @@ function bindDashboardEvents(data) {
       openHiveModal(data);
     }
   });
+
+  // Listener dinâmico para abrir e fechar o detalhamento por núcleo
+  document.querySelectorAll('.btn-toggle-details').forEach(btn => {
+    btn.addEventListener('click', () => {
+      const targetId = btn.getAttribute('data-target');
+      const targetDiv = document.getElementById(targetId);
+      
+      if (targetDiv) {
+        if (targetDiv.style.display === 'none') {
+          targetDiv.style.display = 'block';
+          btn.innerText = '👁️ Ocultar Detalhes';
+          btn.style.background = 'rgba(255,255,255,0.15)';
+        } else {
+          targetDiv.style.display = 'none';
+          btn.innerText = '👁️ Mostrar Detalhes';
+          btn.style.background = '';
+        }
+      }
+    });
+  });
+
+  // ---- CONSERTO DO CLIQUE EM "VER NO MAPA" ----
+  document.querySelectorAll('.btn-view-dashboard-map').forEach(btn => {
+    btn.addEventListener('click', () => {
+      const coords = btn.getAttribute('data-coords');
+      const name = btn.getAttribute('data-name');
+      
+      const mapModalContent = `
+        <div style="background: rgba(15,23,42,0.8); padding: 1rem; border-radius: 12px; border: 1px solid var(--slate-700);">
+          <p style="color: var(--slate-300); font-size: 0.9rem; margin-bottom: 1rem;">
+            Exibindo localização geográfica registrada para: <strong style="color: var(--honey-400);">${name}</strong> 
+          </p>
+          <!-- É aqui dentro que o mapa vai aparecer -->
+          <div id="apiary-map-container" style="width: 100%; height: auto; border-radius: 8px; overflow: hidden; border: 1px solid var(--slate-600); background: #0f172a;">
+            <div style="padding: 2rem; text-align: center; color: var(--slate-400); font-size: 0.9rem;">
+              Sintonizando satélites...
+            </div>
+          </div>
+        </div>
+      `;
+      
+      // 1. Abre a estrutura da janela modal na tela primeiro
+      openModal(`🗺️ Mapa do Núcleo: ${name}`, mapModalContent);
+      
+      // 2. Aguarda a janela existir fisicamente na tela para injetar o mapa com segurança
+      setTimeout(() => {
+        renderDynamicMapForCoords(coords, name);
+      }, 100);
+    });
+  });
+
+  // Botão "Ver rotas": abre diretamente o Google Maps com o destino do núcleo.
+  document.querySelectorAll('.btn-route-dashboard-map').forEach(btn => {
+    btn.addEventListener('click', () => {
+      const coords = String(btn.getAttribute('data-coords') || '').split(',').map(v => v.trim());
+      const lat = parseFloat(coords[0]);
+      const lng = parseFloat(coords[1]);
+
+      if (!Number.isFinite(lat) || !Number.isFinite(lng)) {
+        alert('As coordenadas deste núcleo são inválidas.');
+        return;
+      }
+
+      const routeUrl =
+        `https://www.google.com/maps/dir/?api=1&destination=${encodeURIComponent(lat + ',' + lng)}&travelmode=driving`;
+
+      window.location.href = routeUrl;
+    });
+  });
 }
+
+function renderDynamicMapForCoords(coordsStr, locationName) {
+  const container = document.getElementById('apiary-map-container');
+  if (!container) return;
+
+  // Aceita coordenadas no formato: latitude, longitude
+  const parts = String(coordsStr || '').split(',').map(c => c.trim());
+  const lat = parseFloat(parts[0]);
+  const lng = parseFloat(parts[1]);
+
+  if (!Number.isFinite(lat) || !Number.isFinite(lng) ||
+      lat < -90 || lat > 90 || lng < -180 || lng > 180) {
+    container.innerHTML = `
+      <div style="height:100%; min-height:260px; display:flex; align-items:center; justify-content:center; padding:1.5rem; box-sizing:border-box; text-align:center; color:#fca5a5;">
+        <div>
+          <div style="font-size:2.5rem; margin-bottom:.5rem;">📍</div>
+          <strong>Coordenadas inválidas</strong>
+          <div style="font-size:.8rem; margin-top:.4rem; color:var(--slate-400);">
+            Verifique o cadastro da latitude e longitude do núcleo.
+          </div>
+        </div>
+      </div>`;
+    return;
+  }
+
+  const coordinateText = `${lat.toFixed(6)}, ${lng.toFixed(6)}`;
+
+  // Google Maps: visualização direta da localização.
+  const googleMapsUrl =
+    `https://www.google.com/maps/search/?api=1&query=${encodeURIComponent(lat + ',' + lng)}`;
+
+  // Google Maps: abre a tela de navegação/rotas até o apiário.
+  // No celular, o sistema pode oferecer/abrir o aplicativo Google Maps.
+  const googleDirectionsUrl =
+    `https://www.google.com/maps/dir/?api=1&destination=${encodeURIComponent(lat + ',' + lng)}&travelmode=driving`;
+
+  // OpenStreetMap para exibição do mapa dentro do aplicativo.
+  const delta = 0.005;
+  const west = lng - delta;
+  const south = lat - delta;
+  const east = lng + delta;
+  const north = lat + delta;
+
+  const embedUrl =
+    `https://www.openstreetmap.org/export/embed.html?bbox=` +
+    `${encodeURIComponent(west)},${encodeURIComponent(south)},` +
+    `${encodeURIComponent(east)},${encodeURIComponent(north)}` +
+    `&layer=mapnik&marker=${encodeURIComponent(lat)},${encodeURIComponent(lng)}`;
+
+  const mapVisualHtml = navigator.onLine
+    ? `
+      <div style="position:relative; width:100%; height:300px; overflow:hidden; background:#0f172a;">
+        <iframe
+          title="Mapa de ${String(locationName || 'Núcleo').replace(/"/g, '&quot;')}"
+          src="${embedUrl}"
+          style="display:block; width:100%; height:330px; border:0; background:#0f172a;"
+          loading="lazy"
+          referrerpolicy="no-referrer-when-downgrade">
+        </iframe>
+      </div>
+    `
+    : `
+      <div style="width:100%; height:300px; background:#0f172a; display:flex; flex-direction:column; align-items:center; justify-content:center; padding:1.5rem; box-sizing:border-box; text-align:center;">
+        <div style="font-size:2.5rem; margin-bottom:.5rem;">📶❌</div>
+        <div style="color:#fff; font-weight:600; font-size:.95rem;">Mapa indisponível sem internet</div>
+        <div style="color:var(--slate-400); font-size:.8rem; margin-top:.35rem; max-width:340px;">
+          As coordenadas estão cadastradas, mas o mapa precisa de internet para ser carregado.
+        </div>
+      </div>
+    `;
+
+  container.innerHTML = `
+    <div style="display:flex; flex-direction:column; width:100%; background:#1e293b;">
+      ${mapVisualHtml}
+
+      <div style="padding:1rem; box-sizing:border-box; text-align:center; background:rgba(30,41,59,.96); border-top:1px solid var(--slate-700);">
+        <div style="margin-bottom:.75rem; line-height:1.6;">
+          <div style="color:#fff; font-size:1rem; font-weight:700; word-break:break-word;">📍 ${locationName || 'Núcleo'}</div>
+          <div style="color:var(--slate-400); font-size:.8rem;">
+            Coordenadas: <code style="background:rgba(0,0,0,.3); padding:.15rem .4rem; border-radius:4px; color:#fff; white-space:nowrap;">${coordinateText}</code>
+          </div>
+          <div style="color:var(--slate-500, #64748b); font-size:.65rem; margin-top:.25rem;">© Colaboradores do OpenStreetMap</div>
+        </div>
+
+        <div style="display:flex; gap:.6rem; width:100%; justify-content:center; flex-wrap:wrap;">
+          <button type="button" id="btn-mapa-abrir-app" class="btn btn-secondary"
+            style="display:inline-flex; align-items:center; gap:.4rem; padding:.55rem 1rem; font-size:.85rem; font-weight:600; color:#60a5fa; background:rgba(59,130,246,.1); border:1px solid rgba(59,130,246,.3); border-radius:6px; cursor:pointer;">
+            🗺️ Ver no Google Maps
+          </button>
+
+          <button type="button" id="btn-mapa-gerar-rota" class="btn btn-primary"
+            style="display:inline-flex; align-items:center; gap:.4rem; padding:.55rem 1rem; font-size:.85rem; font-weight:700; color:#fff; background:#10b981; border:none; border-radius:6px; cursor:pointer;">
+            🚗 Ver rotas
+          </button>
+        </div>
+      </div>
+    </div>
+  `;
+
+  // Usa a própria ação do usuário para abrir o Google Maps,
+  // evitando bloqueios de popup em navegadores.
+  const btnMapa = document.getElementById('btn-mapa-abrir-app');
+  const btnRota = document.getElementById('btn-mapa-gerar-rota');
+
+  if (btnMapa) {
+    btnMapa.addEventListener('click', () => {
+      window.location.href = googleMapsUrl;
+    });
+  }
+
+  if (btnRota) {
+    btnRota.addEventListener('click', () => {
+      window.location.href = googleDirectionsUrl;
+    });
+  }
+}
+
 
 function renderApiariesView(data) {
   const infoApicultor = ApisStorage.getApicultorInfo() || { nomeApicultor: 'Apicultor', apiarioPrincipal: 'Geral' };
@@ -1142,13 +1453,21 @@ function renderApiariesView(data) {
       const apiary = data.apiaries.find(a => a.id === hive.apiaryId);
       const queenColor = getQueenColorForYear(hive.queen?.year || new Date().getFullYear());
       
+      // Monta o indicador de própolis
+      const propolisStatusHtml = hive.propolisProducer 
+        ? `<span class="tag-badge" style="background:rgba(16,185,129,0.15); color:var(--emerald-400); font-weight:600;">🌿 Própolis: ${hive.propolisCollectors || 0} col.</span>`
+        : `<span class="tag-badge" style="background:rgba(148,163,184,0.1); color:var(--slate-400);">Mel/Subsistência</span>`;
+
       hiveGridHtml += '<div class="hive-card">' +
         '<div class="hive-card-header">' +
           '<div>' +
             '<div class="hive-code">' + hive.code + '</div>' +
             '<div class="hive-apiary">📍 ' + (apiary ? apiary.name : 'Sem Núcleo') + '</div>' +
           '</div>' +
-          '<span class="status-badge ' + (hive.status === 'Ativa' ? 'status-ativa' : 'status-atencao') + '">' + hive.status + '</span>' +
+          '<div style="display:flex; flex-direction:column; align-items:end; gap:0.35rem;">' +
+            '<span class="status-badge ' + (hive.status === 'Ativa' ? 'status-ativa' : 'status-atencao') + '">' + hive.status + '</span>' +
+            propolisStatusHtml +
+          '</div>' +
         '</div>' +
         '<div style="font-size:0.9rem; font-weight:600; margin-bottom:0.5rem;">' + hive.name + '</div>' +
         '<div style="font-size:0.8rem; color:var(--slate-400); margin-bottom:0.75rem;">Modelo: ' + hive.type + ' | Origem: ' + hive.origin + '</div>' +
@@ -1215,13 +1534,96 @@ function renderApiariesView(data) {
   `;
 }
 
+function renderInspectionsView(data) {
+  const inspections = (data.inspections || []).slice().sort((a, b) => (b.date || '').localeCompare(a.date || ''));
+  const hivesById = {};
+  (data.hives || []).forEach(h => { hivesById[h.id] = h; });
+
+  const yesNo = (v, yes, no) => v
+    ? `<span style="color:var(--emerald-500);">${yes}</span>`
+    : `<span style="color:var(--slate-400);">${no}</span>`;
+
+  const reserveColor = (r) => r === 'Boa' ? 'var(--emerald-500)' : (r === 'Regular' ? 'var(--honey-400)' : 'var(--rose-500)');
+
+  const rowsHtml = inspections.map(insp => {
+    const hive = hivesById[insp.hiveId];
+    const actions = Array.isArray(insp.actionsTaken) ? insp.actionsTaken : (insp.actionsTaken ? [insp.actionsTaken] : []);
+    return `
+      <tr>
+        <td><strong>${insp.date || '-'}</strong></td>
+        <td>${hive ? `<strong>${hive.code || ''}</strong> (${hive.name || 'Colmeia'})` : '<span style="color:var(--slate-400);">Colmeia removida</span>'}</td>
+        <td>${insp.inspector || '-'}</td>
+        <td>${yesNo(insp.queenSpotted, '👑 Sim', 'Não')}</td>
+        <td>${yesNo(insp.eggsPresent, '🥚 Sim', 'Não')}</td>
+        <td>${insp.queenCellsSpotted ? '<span style="color:var(--rose-500);">🚨 Sim</span>' : '<span style="color:var(--slate-400);">Não</span>'}</td>
+        <td><span style="color:${reserveColor(insp.foodReserves)};">${insp.foodReserves || '-'}</span></td>
+        <td>${insp.pestsFound || '-'}</td>
+        <td>${actions.length ? actions.join('<br>') : '-'}</td>
+        <td style="white-space:nowrap;">
+          <button class="btn btn-secondary btn-edit-inspection" data-id="${insp.id}" style="padding:0.3rem 0.6rem; font-size:0.75rem;">✏️</button>
+          <button class="btn btn-danger btn-delete-inspection" data-id="${insp.id}" style="padding:0.3rem 0.6rem; font-size:0.75rem;">🗑️</button>
+        </td>
+      </tr>
+    `;
+  }).join('');
+
+  return `
+    <div class="glass-panel">
+      <div class="section-header">
+        <div>
+          <h2 class="section-title">📋 Inspeções de Campo</h2>
+          <p style="color:var(--slate-400); font-size:0.9rem;">Registro das revisões feitas nas colmeias: rainha, cria, reservas, pragas e ações tomadas.</p>
+        </div>
+        <button class="btn btn-primary" id="btn-new-inspection">+ Nova Inspeção</button>
+      </div>
+
+      <div class="table-responsive">
+        ${inspections.length === 0 ? `
+          <div style="text-align:center; padding:3rem; color:var(--slate-400);">
+            Nenhuma inspeção registrada ainda.
+          </div>
+        ` : `
+          <table class="data-table">
+            <thead>
+              <tr>
+                <th>Data</th>
+                <th>Colmeia</th>
+                <th>Responsável</th>
+                <th>Rainha</th>
+                <th>Ovos/Larvas</th>
+                <th>Realeiras</th>
+                <th>Reservas</th>
+                <th>Pragas</th>
+                <th>Ações</th>
+                <th></th>
+              </tr>
+            </thead>
+            <tbody>
+              ${rowsHtml}
+            </tbody>
+          </table>
+        `}
+      </div>
+    </div>
+  `;
+}
+
 function bindInspectionsEvents(data) {
+  // Corrigido para mapear o ID correto do botão da interface (btn-new-inspection)
   document.getElementById('btn-new-inspection')?.addEventListener('click', () => {
     if (data.hives.length === 0) {
       alert('Cadastre primeiro uma colmeia para registrar uma inspeção!');
     } else {
       openInspectionModal(data);
     }
+  });
+
+  document.querySelectorAll('.btn-edit-inspection').forEach(btn => {
+    btn.addEventListener('click', () => {
+      const id = btn.getAttribute('data-id');
+      const insp = (data.inspections || []).find(i => i.id === id);
+      if (insp) openInspectionModal(data, insp);
+    });
   });
 
   document.querySelectorAll('.btn-delete-inspection').forEach(btn => {
@@ -1386,12 +1788,12 @@ function renderHarvestView(data) {
 }
 
 function bindHarvestEvents(data) {
-  document.getElementById('btn-add-hive')?.addEventListener('click', () => {
+  // Corrigido para associar a ação ao botão correto de nova colheita (btn-new-harvest)
+  document.getElementById('btn-new-harvest')?.addEventListener('click', () => {
     if (data.apiaries.length === 0) {
-      alert('Por favor, cadastre primeiro pelo menos um Núcleo de Produção!');
-      openApiaryModal();
+      alert('Por favor, cadastre primeiro pelo menos um apiário/núcleo para registrar uma colheita!');
     } else {
-      openHiveModal(data);
+      openHarvestModal(data);
     }
   });
 
@@ -1450,6 +1852,9 @@ function renderCalendarView() {
     </div>
   `;
 }
+
+
+
 
 function renderAnalyticsView(data) {
   const totalHoney = data.harvests.filter(h => h.product === 'Mel').reduce((acc, curr) => acc + (parseFloat(curr.quantityKg) || 0), 0);
@@ -1602,8 +2007,7 @@ function openInspectionModal(data = ApisStorage.getAll(), existingInspection = n
     return `<option value="${h.id}" ${selected}>${h.code || ''} - ${h.name || 'Colmeia'}</option>`;
   }).join('');
 
-  const actionsText = Array.isArray(insp.actionsTaken) ? insp.actionsTaken.join('\
-') : (insp.actionsTaken || '');
+  const actionsText = Array.isArray(insp.actionsTaken) ? insp.actionsTaken.join('\n') : (insp.actionsTaken || '');
 
   const html = `
     <form id="form-inspection" class="form-grid">
@@ -1685,8 +2089,7 @@ function openInspectionModal(data = ApisStorage.getAll(), existingInspection = n
       foodReserves: document.getElementById('insp-foodReserves').value,
       pestsFound: document.getElementById('insp-pestsFound').value.trim(),
       actionsTaken: document.getElementById('insp-actionsTaken').value
-        .split('\
-')
+        .split('\n')
         .map(v => v.trim())
         .filter(Boolean)
     };
@@ -1706,6 +2109,8 @@ function openInspectionModal(data = ApisStorage.getAll(), existingInspection = n
     renderApp();
   });
 }
+
+
 
 // ==========================================================================
 // FORMULÁRIO DE COLHEITA
@@ -1833,7 +2238,13 @@ function openApiaryModal(existingApiary = null) {
       </div>
       <div class="form-group">
         <label>Localização / Coordenadas:</label>
-        <input type="text" id="ap-location" class="form-control" value="${ap.location || ''}" placeholder="Ex: Setor Norte - Lote 12">
+        <div style="display:flex; gap:0.5rem;">
+          <input type="text" id="ap-location" class="form-control" value="${ap.location || ''}" placeholder="Ex: -5.1234, -38.5678" style="flex:1;">
+          <button type="button" id="btn-capture-gps" class="btn btn-secondary" style="padding:0.5rem; font-size:0.9rem; white-space:nowrap;" title="Capturar GPS do Dispositivo">
+            📍 Capturar GPS
+          </button>
+        </div>
+        <small id="gps-status" style="color:var(--slate-400); font-size:0.75rem; display:block; margin-top:0.25rem;">Permite captura offline via chip GPS interno.</small>
       </div>
       <div class="form-group" style="grid-column:1 / -1;">
         <label>Notas da Flora Néctar-Polinífera Próxima:</label>
@@ -1846,9 +2257,73 @@ function openApiaryModal(existingApiary = null) {
     </form>
   `;
 
-  openModal(isEdit ? `✏️ Editar Núcleo: ${ap.name}` : '🏞️ Cadastrar Novo Núcleo de Produção', html);
+  openModal(isEdit ? `✏️ Editar Núcleo: ${ap.name}` : '🏞️ Cadastrar Novo Núcleo de Production', html);
   document.getElementById('btn-cancelar-apiary')?.addEventListener('click', closeModal);
 
+  // --- LÓGICA DE CAPTURA DO GPS OFFLINE NATIVO ---
+  document.getElementById('btn-capture-gps')?.addEventListener('click', () => {
+    const statusText = document.getElementById('gps-status');
+    const locationInput = document.getElementById('ap-location');
+
+    if (!navigator.geolocation) {
+      if (statusText) {
+        statusText.innerText = "❌ Seu dispositivo não suporta Geolocalização.";
+        statusText.style.color = "var(--rose-500)";
+      }
+      return;
+    }
+
+    if (statusText) {
+      statusText.innerText = "⏳ Buscando sinal do GPS interno (offline)...";
+      statusText.style.color = "var(--honey-400)";
+    }
+
+    // Configurações ideais para capturar apenas o hardware do GPS nativo de forma precisa
+    const gpsOptions = {
+      enableHighAccuracy: true, // Força o uso do hardware GPS integrado (altamente eficaz em campo/offline)
+      timeout: 10000,           // Aguarda até 10 segundos pelo sinal dos satélites
+      maximumAge: 0             // Não aceita posições antigas em cache
+    };
+
+    navigator.geolocation.getCurrentPosition(
+      (position) => {
+        const lat = position.coords.latitude.toFixed(6);
+        const lng = position.coords.longitude.toFixed(6);
+        const accuracy = position.coords.accuracy.toFixed(0);
+
+        if (locationInput) {
+          locationInput.value = `${lat}, ${lng}`;
+        }
+        if (statusText) {
+          statusText.innerText = `✅ Sucesso! Precisão de ${accuracy} metros (Sinal de Satélite).`;
+          statusText.style.color = "var(--emerald-500)";
+        }
+      },
+      (error) => {
+        console.error("Erro ao capturar GPS:", error);
+        if (statusText) {
+          statusText.style.color = "var(--rose-500)";
+          switch (error.code) {
+            case error.PERMISSION_DENIED:
+              statusText.innerText = "❌ Permissão negada. Ative a localização no seu navegador.";
+              break;
+            case error.POSITION_UNAVAILABLE:
+              statusText.innerText = "❌ Sinal de GPS indisponível. Vá para uma área aberta.";
+              break;
+            case error.TIMEOUT:
+              statusText.innerText = "❌ Tempo esgotado tentando obter sinal das coordenadas.";
+              break;
+            default:
+              statusText.innerText = "❌ Ocorreu um erro desconhecido ao acessar o hardware.";
+              break;
+          }
+        }
+      },
+      gpsOptions
+    );
+  });
+
+  // --- EVENTO DE ENVIO DO FORMULÁRIO ---
   document.getElementById('form-add-apiary').addEventListener('submit', (e) => {
     e.preventDefault();
     const apiaryData = {
@@ -1864,10 +2339,13 @@ function openApiaryModal(existingApiary = null) {
   });
 }
 
-function openHiveModal(data = ApisStorage.getAll(), existingHive = null) {
+function openHiveModal(data = ApisStorage.getAll(), existingHive = null, draft = null) {
   const isEdit = !!existingHive;
-  const h = existingHive || {};
+  const h = draft || existingHive || {};
   const currentYear = new Date().getFullYear();
+
+  // Carrega os modelos de caixas do banco dinâmico
+  const boxModels = ApisStorage.getBoxModels();
 
   let apiaryOptions = '';
   if (data.apiaries && data.apiaries.length > 0) {
@@ -1877,6 +2355,12 @@ function openHiveModal(data = ApisStorage.getAll(), existingHive = null) {
       apiaryOptions += '<option value="' + a.id + '" ' + selected + '>' + a.name + '</option>';
     }
   }
+
+  // Monta as opções do select dinamicamente
+  const modelOptions = (boxModels.length === 0 ? '<option value="">Nenhum modelo cadastrado</option>' : '') + boxModels.map(model => {
+    const selected = h.type === model ? 'selected' : '';
+    return `<option value="${model}" ${selected}>${model}</option>`;
+  }).join('');
 
   const html = `
     <form id="form-edit-hive" class="form-grid">
@@ -1897,11 +2381,12 @@ function openHiveModal(data = ApisStorage.getAll(), existingHive = null) {
       </div>
       <div class="form-group">
         <label>Modelo da Caixa:</label>
-        <select id="hv-type" class="form-control">
-          <option value="Langstroth" ${h.type === 'Langstroth' ? 'selected' : ''}>Langstroth (Padrão)</option>
-          <option value="Schenck" ${h.type === 'Schenck' ? 'selected' : ''}>Schenck</option>
-          <option value="Top Bar" ${h.type === 'Top Bar' ? 'selected' : ''}>Top Bar</option>
-        </select>
+        <div style="display:flex; gap:0.5rem;">
+          <select id="hv-type" class="form-control" style="flex:1;">
+            ${modelOptions}
+          </select>
+          <button type="button" id="btn-manage-models" class="btn btn-secondary" style="padding:0.5rem; font-size:0.85rem;" title="Gerenciar Modelos">⚙️</button>
+        </div>
       </div>
       <div class="form-group">
         <label>Ano de Nasc. da Rainha:</label>
@@ -1922,6 +2407,17 @@ function openHiveModal(data = ApisStorage.getAll(), existingHive = null) {
       <div class="form-group">
         <label>Quantidade de Melgueiras:</label>
         <input type="number" id="hv-supersCount" class="form-control" min="0" max="10" value="${h.supersCount || 0}">
+      </div>
+      <div class="form-group">
+        <label>Produtora de Própolis?</label>
+        <select id="hv-propolisProducer" class="form-control">
+          <option value="false" ${h.propolisProducer === false ? 'selected' : ''}>Não</option>
+          <option value="true" ${h.propolisProducer === true ? 'selected' : ''}>Sim</option>
+        </select>
+      </div>
+      <div class="form-group">
+        <label>Quantidade de Coletores:</label>
+        <input type="number" id="hv-propolisCollectors" class="form-control" min="0" max="10" value="${h.propolisCollectors || 0}">
       </div>
       <div class="form-group">
         <label>Nível de Mansidão (1 a 5):</label>
@@ -1948,6 +2444,30 @@ function openHiveModal(data = ApisStorage.getAll(), existingHive = null) {
   openModal(isEdit ? `✏️ Editar Colmeia: ${h.code}` : '📦 Cadastrar Nova Colmeia', html);
 
   document.getElementById('btn-cancelar-colmeia').addEventListener('click', closeModal);
+  
+  // Gatilho para abrir a janela secundária buscando de forma segura do escopo global
+  document.getElementById('btn-manage-models').addEventListener('click', () => {
+    const val = (id) => document.getElementById(id)?.value;
+    const num = (id) => { const n = parseInt(val(id), 10); return Number.isFinite(n) ? n : undefined; };
+    const formDraft = {
+      ...(existingHive || {}),
+      code: val('hv-code'),
+      name: val('hv-name'),
+      apiaryId: val('hv-apiaryId'),
+      type: val('hv-type'),
+      origin: val('hv-origin'),
+      framesBrood: num('hv-framesBrood'),
+      framesHoney: num('hv-framesHoney'),
+      supersCount: num('hv-supersCount'),
+      propolisProducer: val('hv-propolisProducer') === 'true',
+      propolisCollectors: num('hv-propolisCollectors'),
+      temperament: num('hv-temperament'),
+      healthScore: num('hv-healthScore'),
+      status: val('hv-status'),
+      queen: { ...((existingHive && existingHive.queen) || {}), year: num('hv-q-year') }
+    };
+    window.openManageModelsModal(data, existingHive, formDraft);
+  });
 
   document.getElementById('form-edit-hive').addEventListener('submit', (e) => {
     e.preventDefault();
@@ -1964,6 +2484,8 @@ function openHiveModal(data = ApisStorage.getAll(), existingHive = null) {
       framesBrood: parseInt(document.getElementById('hv-framesBrood').value, 10) || 0,
       framesHoney: parseInt(document.getElementById('hv-framesHoney').value, 10) || 0,
       supersCount: parseInt(document.getElementById('hv-supersCount').value, 10) || 0,
+      propolisProducer: document.getElementById('hv-propolisProducer').value === 'true',
+      propolisCollectors: parseInt(document.getElementById('hv-propolisCollectors').value, 10) || 0,
       temperament: parseInt(document.getElementById('hv-temperament').value, 10) || 4,
       healthScore: parseInt(document.getElementById('hv-healthScore').value, 10) || 100,
       status: document.getElementById('hv-status').value,
@@ -1982,3 +2504,129 @@ function openHiveModal(data = ApisStorage.getAll(), existingHive = null) {
     renderApp();
   });
 }
+
+// Injeta diretamente a função no objeto global Window para que fique acessível em qualquer ponto do script
+window.openManageModelsModal = function(appData, currentHive = null, formDraft = null, editingIndex = -1) {
+  const models = ApisStorage.getBoxModels();
+  const esc = (t) => String(t).replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;');
+
+  const reopen = (idx = -1) => window.openManageModelsModal(appData, currentHive, formDraft, idx);
+
+  let rowsHtml = '';
+  if (models.length === 0) {
+    rowsHtml = '<div style="padding:1rem; text-align:center; color:var(--slate-400); font-size:0.85rem;">Nenhum modelo cadastrado.</div>';
+  }
+  for (let i = 0; i < models.length; i++) {
+    const modelName = models[i];
+    const rowStyle = 'display:flex; justify-content:space-between; align-items:center; gap:0.5rem; padding:0.4rem 0.6rem; border-bottom:1px solid rgba(255,255,255,0.05);';
+
+    if (i === editingIndex) {
+      rowsHtml += '<div style="' + rowStyle + '">' +
+        '<input type="text" id="edit-model-input" class="form-control" value="' + esc(modelName) + '" style="flex:1; padding:0.35rem 0.5rem;">' +
+        '<button type="button" class="btn-confirm-edit-model" data-index="' + i + '" style="background:transparent; border:none; color:var(--emerald-500); cursor:pointer; font-size:1rem;" title="Salvar">✔️</button>' +
+        '<button type="button" class="btn-cancel-edit-model" style="background:transparent; border:none; color:var(--slate-400); cursor:pointer; font-size:1rem;" title="Cancelar">✖️</button>' +
+      '</div>';
+    } else {
+      rowsHtml += '<div style="' + rowStyle + '">' +
+        '<span style="font-size:0.9rem; color:#fff; flex:1; word-break:break-word;">📦 ' + esc(modelName) + '</span>' +
+        '<button type="button" class="btn-edit-model" data-index="' + i + '" style="background:transparent; border:none; cursor:pointer; font-size:0.9rem;" title="Editar modelo">✏️</button>' +
+        '<button type="button" class="btn-delete-model" data-index="' + i + '" style="background:transparent; border:none; color:var(--rose-500); cursor:pointer; font-size:0.9rem;" title="Deletar modelo">🗑️</button>' +
+      '</div>';
+    }
+  }
+
+  const html = `
+    <div style="display:flex; flex-direction:column; gap:1rem;">
+      <div style="display:flex; gap:0.5rem;">
+        <input type="text" id="new-model-name" class="form-control" placeholder="Ex: Caixa Baiana, OKS" style="flex:1;">
+        <button type="button" id="btn-save-new-model" class="btn btn-primary" style="padding:0.6rem 1rem;">Adicionar</button>
+      </div>
+
+      <div style="max-height:240px; overflow-y:auto; background:rgba(15,23,42,0.6); border:1px solid var(--slate-700); border-radius:8px; padding:0.5rem;">
+        ${rowsHtml}
+      </div>
+
+      <div style="display:flex; justify-content:flex-end; margin-top:0.5rem;">
+        <button type="button" id="btn-close-models" class="btn btn-secondary">Voltar ao Cadastro</button>
+      </div>
+    </div>
+  `;
+
+  openModal('🛠️ Gerenciar Modelos de Caixas', html);
+
+  // ---- Incluir ----
+  const addModel = () => {
+    const input = document.getElementById('new-model-name');
+    if (!input || !input.value.trim()) return;
+    const name = input.value.trim();
+    const exists = ApisStorage.getBoxModels().some(m => m.toLowerCase() === name.toLowerCase());
+    if (exists) {
+      alert('Este modelo já está cadastrado.');
+      return;
+    }
+    if (ApisStorage.saveBoxModel(name)) {
+      if (formDraft) formDraft.type = name; // já deixa o novo modelo selecionado no cadastro
+      reopen();
+    } else {
+      alert('Formato inválido.');
+    }
+  };
+  document.getElementById('btn-save-new-model').addEventListener('click', addModel);
+  document.getElementById('new-model-name').addEventListener('keydown', (e) => {
+    if (e.key === 'Enter') { e.preventDefault(); addModel(); }
+  });
+
+  // ---- Editar ----
+  document.querySelectorAll('.btn-edit-model').forEach(btn => {
+    btn.addEventListener('click', () => reopen(parseInt(btn.getAttribute('data-index'), 10)));
+  });
+
+  document.querySelectorAll('.btn-cancel-edit-model').forEach(btn => {
+    btn.addEventListener('click', () => reopen());
+  });
+
+  const confirmEdit = (idx) => {
+    const oldName = models[idx];
+    const newName = document.getElementById('edit-model-input')?.value || '';
+    const result = ApisStorage.renameBoxModel(oldName, newName);
+
+    if (result === 'empty') { alert('Informe o nome do modelo.'); return; }
+    if (result === 'duplicate') { alert('Já existe um modelo com esse nome.'); return; }
+    if (result === 'notfound') { reopen(); return; }
+
+    const finalName = newName.trim();
+    if (formDraft && formDraft.type === oldName) formDraft.type = finalName;
+    if (currentHive && currentHive.type === oldName) currentHive.type = finalName;
+    reopen();
+  };
+
+  document.querySelectorAll('.btn-confirm-edit-model').forEach(btn => {
+    btn.addEventListener('click', () => confirmEdit(parseInt(btn.getAttribute('data-index'), 10)));
+  });
+  document.getElementById('edit-model-input')?.addEventListener('keydown', (e) => {
+    if (e.key === 'Enter') { e.preventDefault(); confirmEdit(editingIndex); }
+    if (e.key === 'Escape') { reopen(); }
+  });
+  document.getElementById('edit-model-input')?.focus();
+
+  // ---- Excluir ----
+  document.querySelectorAll('.btn-delete-model').forEach(btn => {
+    btn.addEventListener('click', () => {
+      const modelToDelete = models[parseInt(btn.getAttribute('data-index'), 10)];
+      const inUse = ApisStorage.countHivesUsingModel(modelToDelete);
+      const extra = inUse > 0
+        ? `\n\n${inUse} colmeia(s) já usam este modelo e continuarão exibindo o nome "${modelToDelete}".`
+        : '';
+      if (confirm(`Deseja mesmo excluir o modelo "${modelToDelete}"?${extra}`)) {
+        ApisStorage.deleteBoxModel(modelToDelete);
+        if (formDraft && formDraft.type === modelToDelete) formDraft.type = '';
+        reopen();
+      }
+    });
+  });
+
+  // ---- Voltar ao cadastro (mantém o que foi digitado) ----
+  document.getElementById('btn-close-models').addEventListener('click', () => {
+    openHiveModal(ApisStorage.getAll(), currentHive, formDraft);
+  });
+};
