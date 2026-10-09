@@ -6,7 +6,7 @@
   <title>ApisApp Pro - Sistema de Gestão de Apicultura</title>
 
   <!-- CSS com versão atualizada -->
-  <link rel="stylesheet" href="./css/styles.css?v=1.6.0">
+  <link rel="stylesheet" href="./css/styles.css?v=1.7.0">
   <link rel="manifest" href="./manifest.json">
   <meta name="theme-color" content="#f59e0b">
   <link class="brand-logo-icon" rel="icon" type="image/png" href="./assets/icon.png">
@@ -23,6 +23,23 @@
       });
     }
   </script>
+  <style id="menu-mobile-style">
+    .menu-toggle { display: none; }
+    @media (max-width: 1100px) {
+      .navbar { flex-wrap: wrap; position: sticky; top: 0; z-index: 50; }
+      .menu-toggle {
+        display: flex; align-items: center; justify-content: space-between; gap: 0.5rem;
+        width: 100%; padding: 0.6rem 0.9rem; font-size: 0.95rem; font-weight: 700; cursor: pointer;
+        border-radius: 10px; border: 1px solid var(--honey-400); background: rgba(245,158,11,0.12); color: #fff;
+      }
+      .menu-toggle small { font-weight: 500; color: var(--honey-400); font-size: 0.8rem; }
+      .navbar .nav-links, .navbar .nav-actions { display: none; width: 100%; }
+      .navbar.menu-open .nav-links { display: block; max-height: 62vh; overflow-y: auto; margin-top: 0.5rem; }
+      .navbar.menu-open .nav-actions { display: flex; flex-wrap: wrap; gap: 0.5rem; margin-top: 0.5rem; }
+      .navbar.menu-open .nav-links ul { display: grid !important; grid-template-columns: repeat(auto-fit, minmax(160px, 1fr)); gap: 0.4rem !important; }
+      .navbar .nav-item button { width: 100%; text-align: left; }
+    }
+  </style>
 </head>
 <body>
   <div id="app-container">
@@ -31,11 +48,13 @@
         <img src="./assets/icon.png" alt="ApisApp Logo" class="brand-logo-img" style="width:44px; height:44px; border-radius:12px; object-fit:cover; border:2px solid var(--honey-400);">
         <div class="brand-text">
           <h1>ApisApp Pro</h1>
-          <span>Gestão Apícola Avançada v1.6.0</span>
+          <span>Gestão Apícola Avançada v1.7.0</span>
         </div>
       </a>
 
-      <nav class="nav-links">
+      <button type="button" id="btn-menu-toggle" class="menu-toggle" aria-expanded="false" aria-controls="nav-collapsible"></button>
+
+      <nav class="nav-links" id="nav-collapsible">
         <ul style="display:flex; list-style:none; padding:0; margin:0; gap:0.5rem; flex-wrap:wrap;">
           <li class="nav-item"><button data-tab="dashboard" class="active">📊 Painel Geral</button></li>
           <li class="nav-item"><button data-tab="apiaries">🏞️ Núcleos & Colmeias</button></li>
@@ -65,11 +84,41 @@
     <main class="main-content" id="main-view"></main>
 
     <footer style="text-align:center; padding:1.5rem; color:var(--slate-400); font-size:0.8rem; border-top:1px solid var(--glass-border); margin-top:2rem;">
-      <p><strong>ApisApp Pro v1.6.0</strong> &copy; 2026 - Desenvolvido por <a href="#" style="color:var(--honey-400); font-weight:bold;">Iranilson Gomes</a>.</p>
+      <p><strong>ApisApp Pro v1.7.0</strong> &copy; 2026 - Desenvolvido por <a href="#" style="color:var(--honey-400); font-weight:bold;">Iranilson Gomes</a>.</p>
     </footer>
   </div>
 
   <div id="modal-backdrop" class="modal-backdrop"></div>
-  <script src="./js/app.js?v=1.6.0"></script>
+  <script src="./js/app.js?v=1.7.0"></script>
+  <script>
+    (function () {
+      var nav = document.querySelector('.navbar');
+      var btn = document.getElementById('btn-menu-toggle');
+      if (!nav || !btn) return;
+      function label() {
+        var a = document.querySelector('.nav-item button.active');
+        return a ? a.textContent.trim() : '';
+      }
+      function render() {
+        var open = nav.classList.contains('menu-open');
+        btn.setAttribute('aria-expanded', open ? 'true' : 'false');
+        btn.innerHTML = open ? '<span>✕ Minimizar menu</span>' : '<span>☰ Ver tudo</span><small>' + label() + '</small>';
+      }
+      function close() { nav.classList.remove('menu-open'); render(); }
+      btn.addEventListener('click', function () { nav.classList.toggle('menu-open'); render(); });
+      document.querySelectorAll('.nav-item button').forEach(function (b) {
+        b.addEventListener('click', function () {
+          setTimeout(function () { close(); window.scrollTo({ top: 0, behavior: 'smooth' }); }, 0);
+        });
+      });
+      var actions = document.querySelector('.nav-actions');
+      if (actions) actions.addEventListener('click', function () { setTimeout(close, 0); });
+      document.addEventListener('click', function (e) {
+        if (nav.classList.contains('menu-open') && !nav.contains(e.target)) close();
+      });
+      document.addEventListener('keydown', function (e) { if (e.key === 'Escape') close(); });
+      render();
+    })();
+  </script>
 </body>
 </html>

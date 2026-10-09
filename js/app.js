@@ -1,5 +1,5 @@
 /**
- * ApisApp Pro v1.6.0 - Código Unificado Standalone
+ * ApisApp Pro v1.7.0 - Código Unificado Standalone
  * Gestão de Apicultura (Apis mellifera)
  * Suporte a execução por duplo clique (file://) e por servidor local (http://)
  * Compatível com múltiplos serviços de armazenamento gratuito na nuvem (Drive, OneDrive, MEGA, Dropbox, iCloud)
@@ -268,7 +268,7 @@ const ApisStorage = {
   getFullBackup() {
     return Object.assign({}, this.getAll(), {
       _apisapp_backup: true,
-      version: '1.6.0',
+      version: '1.7.0',
       exportedAt: new Date().toISOString(),
       apicultorInfo: JSON.parse(localStorage.getItem(STORAGE_KEYS.APICULTOR_INFO) || 'null'),
       settings: JSON.parse(localStorage.getItem(STORAGE_KEYS.SETTINGS) || 'null'),
@@ -1441,7 +1441,7 @@ function bindHiveCardEvents() {
 }
 
 // ==========================================================================
-// 6. PLANEJAMENTO: PRECIFICAÇÃO, METAS, CAIXA, RECORRÊNCIA, DOCUMENTOS, CSV (v1.6.0)
+// 6. PLANEJAMENTO: PRECIFICAÇÃO, METAS, CAIXA, RECORRÊNCIA, DOCUMENTOS, CSV (v1.7.0)
 // ==========================================================================
 
 const REC_KEY = 'apisapp_recur';
