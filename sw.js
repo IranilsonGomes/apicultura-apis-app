@@ -1,5 +1,5 @@
 // Versionamento do Aplicativo ApisApp Pro - Sincronizado com o App e HTML
-const CACHE_NAME = 'apisapp-v1.0.5';
+const CACHE_NAME = 'apisapp-v1.1.7';
 
 const ASSETS_TO_CACHE = [
   './',

@@ -3,169 +3,73 @@
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <title>ApisApp - Sistema de Gestão de Apicultura (Abelhas Apis mellifera)</title>
-  <meta name="description" content="Aplicativo profissional para gestão de apicultura, controle de colmeias de abelhas Apis mellifera, marcação de rainhas, inspeções de campo e colheitas de mel.">
-  <link rel="stylesheet" href="./css/styles.css">
+  <title>ApisApp Pro - Sistema de Gestão de Apicultura</title>
+
+  <!-- CSS com versão atualizada -->
+  <link rel="stylesheet" href="./css/styles.css?v=1.6.0">
   <link rel="manifest" href="./manifest.json">
   <meta name="theme-color" content="#f59e0b">
   <link class="brand-logo-icon" rel="icon" type="image/png" href="./assets/icon.png">
+
+  <!-- Chart.js para Gráficos de Produtividade e Finanças -->
+  <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
+
   <script>
-    // Registro e Verificação de Atualização Automática Avançada
     if ('serviceWorker' in navigator) {
       window.addEventListener('load', () => {
         navigator.serviceWorker.register('./sw.js').then((registration) => {
-          console.log('[ApisApp] Service Worker registrado. Verificando atualizações...');
-
-          // Força a verificação de nova versão no servidor
           registration.update();
-
-          // Checa atualizações de segundo plano toda vez que abrir o app no celular
-          document.addEventListener('visibilitychange', () => {
-            if (document.visibilityState === 'visible') {
-              registration.update();
-            }
-          });
-
-          // Caso já exista uma versão baixada esperando na fila, exibe o banner
-          if (registration.waiting) {
-            showUpdateBanner();
-          }
-
-          registration.addEventListener('updatefound', () => {
-            const newWorker = registration.installing;
-            console.log('[ApisApp] Nova versão encontrada, baixando...');
-
-            newWorker.addEventListener('statechange', () => {
-              if (newWorker.state === 'installed' && navigator.serviceWorker.controller) {
-                console.log('[ApisApp] Nova versão pronta! Exibindo notificação...');
-                showUpdateBanner();
-              }
-            });
-          });
-        }).catch(err => console.log('Erro ao registrar Service Worker:', err));
-
-        // Substituição do controlador sem quebras ou perdas do LocalStorage
-        let refreshing = false;
-        navigator.serviceWorker.addEventListener('controllerchange', () => {
-          if (!refreshing) {
-            refreshing = true;
-            window.location.reload();
-          }
         });
       });
-    }
-
-    function showUpdateBanner() {
-      const banner = document.getElementById('update-banner');
-      if (banner) banner.style.display = 'block';
     }
   </script>
 </head>
 <body>
   <div id="app-container">
-    <!-- Banner Notificação de Nova Versão Encontrada -->
-    <div id="update-banner" style="display:none; background:linear-gradient(90deg, #d97706, #f59e0b); color:#0f172a; padding:0.75rem 2rem; font-size:0.9rem; font-weight:700; text-align:center; position:sticky; top:0; z-index:2000; box-shadow:0 4px 15px rgba(245,158,11,0.5);">
-      🚀 <span>Uma nova versão do ApisApp foi encontrada e baixada!</span>
-      <button onclick="window.location.reload()" style="background:#0f172a; color:#fff; border:none; padding:0.35rem 0.9rem; border-radius:8px; font-weight:700; margin-left:1rem; cursor:pointer;">
-        🔄 Aplicar Atualização Agora
-      </button>
-    </div>
-
-    <!-- Navbar Superior -->
     <header class="navbar">
       <a href="#" class="brand">
-        <img src="./assets/icon.png" alt="ApisApp Logo" class="brand-logo-img" style="width:44px; height:44px; border-radius:12px; object-fit:cover; border:2px solid var(--honey-400); box-shadow:0 0 10px rgba(245,158,11,0.4);">
+        <img src="./assets/icon.png" alt="ApisApp Logo" class="brand-logo-img" style="width:44px; height:44px; border-radius:12px; object-fit:cover; border:2px solid var(--honey-400);">
         <div class="brand-text">
           <h1>ApisApp Pro</h1>
-          <span>Gestão de Abelhas Apis mellifera v1.0.</span>
+          <span>Gestão Apícola Avançada v1.6.0</span>
         </div>
       </a>
 
       <nav class="nav-links">
-        <li class="nav-item">
-          <button data-tab="dashboard" class="active" id="nav-btn-dashboard">
-            📊 Painel Geral
-          </button>
-        </li>
-        <li class="nav-item">
-          <!-- CORREÇÃO DE TEXTO DO MENU -->
-          <button data-tab="apiaries" id="nav-btn-apiaries">
-           |🏞️| Núcleos & Colmeias
-          </button>
-        </li>
-        <li class="nav-item">
-          <button data-tab="queens" id="nav-btn-queens">
-            👑 Rainhas & Cores
-          </button>
-        </li>
-        <li class="nav-item">
-          <button data-tab="inspections" id="nav-btn-inspections">
-            📋 Inspeções
-          </button>
-        </li>
-        <li class="nav-item">
-          <button data-tab="harvest" id="nav-btn-harvest">
-            🍯 Colheita & Lotes
-          </button>
-        </li>
-        <li class="nav-item">
-          <button data-tab="calendar" id="nav-btn-calendar">
-            🌸 Calendário Floral
-          </button>
-        </li>
-        <li class="nav-item">
-          <button data-tab="analytics" id="nav-btn-analytics">
-            📈 Análises
-          </button>
-        </li>
-        <li class="nav-item">
-          <button data-tab="guide" id="nav-btn-guide">
-            📚 Guia Técnico
-          </button>
-        </li>
+        <ul style="display:flex; list-style:none; padding:0; margin:0; gap:0.5rem; flex-wrap:wrap;">
+          <li class="nav-item"><button data-tab="dashboard" class="active">📊 Painel Geral</button></li>
+          <li class="nav-item"><button data-tab="apiaries">🏞️ Núcleos & Colmeias</button></li>
+          <li class="nav-item"><button data-tab="queens">👑 Rainhas & Zootecnia</button></li>
+          <li class="nav-item"><button data-tab="inspections">📋 Inspeções & Sanidade</button></li>
+          <li class="nav-item"><button data-tab="harvest">🍯 Colheita & Lotes</button></li>
+          <li class="nav-item"><button data-tab="finance">💰 Finanças & Vendas</button></li>
+          <li class="nav-item"><button data-tab="manejo">🛠️ Manejo & Tarefas</button></li>
+          <li class="nav-item"><button data-tab="hivecard">🐝 Fichas & Ranking</button></li>
+          <li class="nav-item"><button data-tab="insumos">📦 Insumos</button></li>
+          <li class="nav-item"><button data-tab="planejamento">🎯 Planejamento</button></li>
+          <li class="nav-item"><button data-tab="calendar">🌸 Calendário Floral</button></li>
+          <li class="nav-item"><button data-tab="analytics">📈 Análises & Gráficos</button></li>
+          <li class="nav-item"><button data-tab="guide">📚 Guia Técnico</button></li>
+        </ul>
       </nav>
 
       <div class="nav-actions">
-        <button class="btn btn-primary" id="btn-cloud-drive" title="Backup Diário e Envio para o Google Drive / E-mail" style="font-size:0.8rem; padding:0.4rem 0.85rem;">
-          ☁️ Backup & Drive
-        </button>
-        <button class="btn btn-secondary" id="btn-export-json" title="Baixar Arquivo JSON do Backup" style="font-size:0.8rem; padding:0.4rem 0.8rem;">
-          💾 Baixar JSON
-        </button>
-        <label for="file-import-json" class="btn btn-secondary" title="Importar Backup JSON" style="font-size:0.8rem; padding:0.4rem 0.8rem; cursor:pointer;">
-          📂 Importar
-        </label>
+        <button class="btn btn-primary" id="btn-cloud-drive" style="font-size:0.8rem; padding:0.4rem 0.85rem;">☁️ Backup & Drive</button>
+        <button class="btn btn-secondary" id="btn-export-json" style="font-size:0.8rem; padding:0.4rem 0.8rem;">💾 JSON</button>
+        <label for="file-import-json" class="btn btn-secondary" style="font-size:0.8rem; padding:0.4rem 0.8rem; cursor:pointer;">📂 Importar</label>
         <input type="file" id="file-import-json" accept=".json" style="display:none;">
-        <button class="btn btn-danger" id="btn-reset-empty" title="Limpar Todos os Dados para Início do Zero" style="font-size:0.8rem; padding:0.4rem 0.8rem;">
-          🧹 Zerar
-        </button>
+        <button class="btn btn-danger" id="btn-reset-empty" style="font-size:0.8rem; padding:0.4rem 0.8rem;">🧹 Zerar</button>
       </div>
     </header>
 
-    <!-- Banner de Status de Conexão / Backup Automático -->
-    <div id="backup-status-banner" style="display:none; background:linear-gradient(90deg, #1e293b, #0f172a); border-bottom:1px solid var(--honey-400); padding:0.6rem 2rem; font-size:0.85rem; text-align:center; position:relative;">
-      <span id="backup-banner-text">☁️ <strong>Backup Diário Automático Concluído!</strong> Clique ao lado para salvar no seu Google Drive ou E-mail da conta do celular.</span>
-      <button class="btn btn-primary" id="btn-banner-share" style="padding:0.25rem 0.75rem; font-size:0.75rem; margin-left:0.75rem;">
-        📤 Salvar no Google Drive / E-mail
-      </button>
-      <button id="btn-close-banner" style="background:transparent; border:none; color:var(--slate-400); font-size:1.2rem; cursor:pointer; position:absolute; right:1rem; top:50%; transform:translateY(-50%);">&times;</button>
-    </div>
+    <main class="main-content" id="main-view"></main>
 
-    <!-- Área Principal de Exibição Dinâmica -->
-    <main class="main-content" id="main-view">
-      <!-- Conteúdo injetado dinamicamente -->
-    </main>
-
-    <!-- Rodapé -->
     <footer style="text-align:center; padding:1.5rem; color:var(--slate-400); font-size:0.8rem; border-top:1px solid var(--glass-border); margin-top:2rem;">
-      <p><strong>ApisApp Pro v1.0.6</strong> &copy; 2026 - Desenvolvido por <a href="#" style="color:var(--honey-400); text-decoration:none; font-weight:bold;">Iranilson Gomes</a>.</p>
+      <p><strong>ApisApp Pro v1.6.0</strong> &copy; 2026 - Desenvolvido por <a href="#" style="color:var(--honey-400); font-weight:bold;">Iranilson Gomes</a>.</p>
     </footer>
   </div>
 
-  <!-- Container de Modais -->
   <div id="modal-backdrop" class="modal-backdrop"></div>
-
-  <!-- Script ES Module -->
-  <script type="module" src="./js/app.js"></script>
+  <script src="./js/app.js?v=1.6.0"></script>
 </body>
 </html>

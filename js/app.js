@@ -1,5 +1,5 @@
 /**
- * ApisApp Pro v1.0.5 - Código Unificado Standalone
+ * ApisApp Pro v1.6.0 - Código Unificado Standalone
  * Gestão de Apicultura (Apis mellifera)
  * Suporte a execução por duplo clique (file://) e por servidor local (http://)
  * Compatível com múltiplos serviços de armazenamento gratuito na nuvem (Drive, OneDrive, MEGA, Dropbox, iCloud)
@@ -39,7 +39,16 @@ const EMPTY_DATA = {
   hives: [],
   queens: [],
   inspections: [],
-  harvests: []
+  harvests: [],
+  sales: [],
+  expenses: [],
+  customers: [],
+  manejo: [],
+  tasks: [],
+  insumos: [],
+  recur: [],
+  docs: [],
+  goals: []
 };
 
 const ApisStorage = {
@@ -129,7 +138,16 @@ const ApisStorage = {
       hives: JSON.parse(localStorage.getItem(STORAGE_KEYS.HIVES) || '[]'),
       queens: JSON.parse(localStorage.getItem(STORAGE_KEYS.QUEENS) || '[]'),
       inspections: JSON.parse(localStorage.getItem(STORAGE_KEYS.INSPECTIONS) || '[]'),
-      harvests: JSON.parse(localStorage.getItem(STORAGE_KEYS.HARVESTS) || '[]')
+      harvests: JSON.parse(localStorage.getItem(STORAGE_KEYS.HARVESTS) || '[]'),
+      sales: JSON.parse(localStorage.getItem('apisapp_sales') || '[]'),
+      expenses: JSON.parse(localStorage.getItem('apisapp_expenses') || '[]'),
+      customers: JSON.parse(localStorage.getItem('apisapp_customers') || '[]'),
+      manejo: JSON.parse(localStorage.getItem('apisapp_manejo') || '[]'),
+      tasks: JSON.parse(localStorage.getItem('apisapp_tasks') || '[]'),
+      insumos: JSON.parse(localStorage.getItem('apisapp_insumos') || '[]'),
+      recur: JSON.parse(localStorage.getItem('apisapp_recur') || '[]'),
+      docs: JSON.parse(localStorage.getItem('apisapp_docs') || '[]'),
+      goals: JSON.parse(localStorage.getItem('apisapp_goals') || '[]')
     };
   },
 
@@ -139,6 +157,15 @@ const ApisStorage = {
     localStorage.setItem(STORAGE_KEYS.QUEENS, JSON.stringify(data.queens || []));
     localStorage.setItem(STORAGE_KEYS.INSPECTIONS, JSON.stringify(data.inspections || []));
     localStorage.setItem(STORAGE_KEYS.HARVESTS, JSON.stringify(data.harvests || []));
+    localStorage.setItem('apisapp_sales', JSON.stringify(data.sales || []));
+    localStorage.setItem('apisapp_expenses', JSON.stringify(data.expenses || []));
+    localStorage.setItem('apisapp_customers', JSON.stringify(data.customers || []));
+    localStorage.setItem('apisapp_manejo', JSON.stringify(data.manejo || []));
+    localStorage.setItem('apisapp_tasks', JSON.stringify(data.tasks || []));
+    localStorage.setItem('apisapp_insumos', JSON.stringify(data.insumos || []));
+    localStorage.setItem('apisapp_recur', JSON.stringify(data.recur || []));
+    localStorage.setItem('apisapp_docs', JSON.stringify(data.docs || []));
+    localStorage.setItem('apisapp_goals', JSON.stringify(data.goals || []));
   },
 
   clearAll() {
@@ -241,12 +268,13 @@ const ApisStorage = {
   getFullBackup() {
     return Object.assign({}, this.getAll(), {
       _apisapp_backup: true,
-      version: '1.0.5',
+      version: '1.6.0',
       exportedAt: new Date().toISOString(),
       apicultorInfo: JSON.parse(localStorage.getItem(STORAGE_KEYS.APICULTOR_INFO) || 'null'),
       settings: JSON.parse(localStorage.getItem(STORAGE_KEYS.SETTINGS) || 'null'),
       queenColors: JSON.parse(localStorage.getItem(STORAGE_KEYS.QUEEN_COLORS) || 'null'),
-      boxModels: JSON.parse(localStorage.getItem(STORAGE_KEYS.BOX_MODELS) || 'null')
+      boxModels: JSON.parse(localStorage.getItem(STORAGE_KEYS.BOX_MODELS) || 'null'),
+      packages: JSON.parse(localStorage.getItem('apisapp_packages') || 'null')
     });
   },
 
@@ -423,6 +451,7 @@ const ApisStorage = {
         if (data.settings) localStorage.setItem(STORAGE_KEYS.SETTINGS, JSON.stringify(data.settings));
         if (data.queenColors) localStorage.setItem(STORAGE_KEYS.QUEEN_COLORS, JSON.stringify(data.queenColors));
         if (data.boxModels) localStorage.setItem(STORAGE_KEYS.BOX_MODELS, JSON.stringify(data.boxModels));
+        if (data.packages) localStorage.setItem('apisapp_packages', JSON.stringify(data.packages));
         return true;
       }
       return false;
@@ -609,16 +638,1000 @@ function checkAutoBackupBanner() {
   }
 }
 
+// ==========================================================================
+// 3. MÓDULO FINANÇAS, ESTOQUE POR LOTE, VENDAS FRACIONADAS E ALERTAS (v1.3.0)
+// ==========================================================================
+
+const FIN_KEYS = { SALES: 'apisapp_sales', EXPENSES: 'apisapp_expenses', CUSTOMERS: 'apisapp_customers', PACKAGES: 'apisapp_packages' };
+const DEFAULT_PACKAGES = [
+  { id: 'pk-1', name: 'Balde 20 kg', kg: 20 },
+  { id: 'pk-2', name: 'Pote 1 kg', kg: 1 },
+  { id: 'pk-3', name: 'Pote 500 g', kg: 0.5 },
+  { id: 'pk-4', name: 'Pote 300 g', kg: 0.3 },
+  { id: 'pk-5', name: 'Pote 250 g', kg: 0.25 },
+  { id: 'pk-6', name: 'Bisnaga 30 g', kg: 0.03 }
+];
+const EXPENSE_CATEGORIES = ['Alimentação (açúcar/xarope/proteico)', 'Equipamentos e madeira', 'Embalagens e rótulos', 'Sanidade / medicamentos', 'Transporte e combustível', 'Mão de obra', 'Energia / água', 'Taxas e certificações', 'Manutenção', 'Outros'];
+const SALE_CHANNELS = ['Varejo', 'Atacado', 'Feira', 'Entrega', 'Encomenda'];
+const PAY_METHODS = ['Pix', 'Dinheiro', 'Cartão', 'Fiado'];
+const LOSS_REASONS = ['Amostra', 'Doação', 'Consumo próprio', 'Fermentado / descartado', 'Outro'];
+
+const FinStore = {
+  get(k) { try { return JSON.parse(localStorage.getItem(k) || '[]'); } catch (e) { return []; } },
+  put(k, list) { localStorage.setItem(k, JSON.stringify(list)); },
+  save(k, item, prefix) {
+    const l = this.get(k);
+    if (item.id) {
+      const i = l.findIndex(x => x.id === item.id);
+      if (i > -1) l[i] = item; else l.push(item);
+    } else {
+      item.id = prefix + '-' + Date.now() + Math.floor(Math.random() * 1000);
+      l.push(item);
+    }
+    this.put(k, l);
+    return item;
+  },
+  del(k, id) { this.put(k, this.get(k).filter(x => x.id !== id)); }
+};
+
+function getPackages() {
+  const l = FinStore.get(FIN_KEYS.PACKAGES);
+  return l.length ? l : DEFAULT_PACKAGES;
+}
+
+const brl = v => 'R$ ' + (Number(v) || 0).toLocaleString('pt-BR', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
+const esc = s => String(s == null ? '' : s).replace(/[&<>"']/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
+const fmtDate = d => d ? String(d).split('-').reverse().join('/') : '-';
+const todayISO = () => new Date().toISOString().split('T')[0];
+const sumBy = (arr, fn) => arr.reduce((a, x) => a + (fn(x) || 0), 0);
+
+function saleTotal(s) { return Math.max(0, sumBy(s.items || [], i => i.units * i.unitPrice) - (parseFloat(s.discount) || 0)); }
+function saleKg(s) { return sumBy(s.items || [], i => i.units * i.pkgKg); }
+
+function lotStock(data) {
+  return data.harvests.map(h => {
+    let sold = 0, lost = 0;
+    (data.sales || []).forEach(s => (s.items || []).forEach(i => {
+      if (i.harvestId === h.id) {
+        const q = i.units * i.pkgKg;
+        if (s.kind === 'perda') lost += q; else sold += q;
+      }
+    }));
+    return { h, sold, lost, balance: (parseFloat(h.quantityKg) || 0) - sold - lost };
+  });
+}
+
+// ---------- Alertas do painel ----------
+function buildAlertsHtml(data) {
+  const A = [];
+  const today = new Date();
+  const yr = today.getFullYear();
+  const lastInsp = {};
+  data.inspections.forEach(i => { if (!lastInsp[i.hiveId] || i.date > lastInsp[i.hiveId]) lastInsp[i.hiveId] = i.date; });
+  data.hives.forEach(h => {
+    const li = lastInsp[h.id];
+    const days = li ? Math.floor((today - new Date(li + 'T12:00:00')) / 864e5) : null;
+    if (days === null) A.push('🔎 ' + esc(h.code) + ' ainda não foi inspecionada');
+    else if (days > 30) A.push('🔎 ' + esc(h.code) + ' sem inspeção há ' + days + ' dias');
+    const qy = parseInt(h.queen && h.queen.year, 10);
+    if (qy && yr - qy >= 2) A.push('👑 ' + esc(h.code) + ': rainha de ' + qy + ' — avaliar troca');
+    if (h.status === 'Atenção') A.push('⚠️ ' + esc(h.code) + ' está em status Atenção');
+  });
+  data.harvests.filter(h => h.product === 'Mel' && parseFloat(h.moisturePct) > 20)
+    .forEach(h => A.push('💧 Lote ' + esc(h.batchNumber) + ' com umidade ' + h.moisturePct + '% (acima de 20%, risco de fermentar)'));
+  const t = todayISO();
+  const late = (data.sales || []).filter(s => s.kind !== 'perda' && !s.paid && s.dueDate && s.dueDate < t);
+  if (late.length) A.push('💸 ' + late.length + ' venda(s) vencida(s) a receber: ' + brl(sumBy(late, saleTotal)));
+  lotStock(data).filter(x => x.balance < -0.0001).forEach(x => A.push('📦 Lote ' + esc(x.h.batchNumber) + ' com saldo negativo — revise as vendas'));
+  buildManejoAlerts().forEach(a => A.push(a));
+  FinStore.get('apisapp_docs').forEach(d => { const dd = Math.floor((new Date(d.expires + 'T12:00:00') - today) / 864e5); if (dd < 0) A.push('📄 Documento vencido: ' + esc(d.name)); else if (dd <= 30) A.push('📄 ' + esc(d.name) + ' vence em ' + dd + ' dias'); });
+  FinStore.get('apisapp_insumos').filter(i => i.qty <= i.min).forEach(i => A.push('📦 Insumo acabando: ' + esc(i.name) + ' (' + i.qty + ' ' + esc(i.unit) + ')'));
+  if (!A.length) return '';
+  const shown = A.slice(0, 8).map(a => '<li style="padding:0.25rem 0;">' + a + '</li>').join('');
+  return '<div class="glass-panel" style="margin-bottom:1.25rem; border-left:4px solid var(--honey-400);">' +
+    '<h3 style="color:var(--honey-400); margin-bottom:0.5rem;">🔔 Alertas do Apiário (' + A.length + ')</h3>' +
+    '<ul style="list-style:none; padding:0; margin:0; font-size:0.9rem;">' + shown + '</ul>' +
+    (A.length > 8 ? '<div style="color:var(--slate-400); font-size:0.8rem;">+ ' + (A.length - 8) + ' alerta(s)</div>' : '') + '</div>';
+}
+
+// ---------- Tela Finanças & Vendas ----------
+let finYear = 'all';
+let finCharts = [];
+const inYear = d => finYear === 'all' || String(d || '').startsWith(finYear);
+
+function renderFinanceView(data) {
+  const sales = data.sales.filter(s => inYear(s.date));
+  const exps = data.expenses.filter(e => inYear(e.date));
+  const vendas = sales.filter(s => s.kind !== 'perda');
+  const perdas = sales.filter(s => s.kind === 'perda');
+  const receita = sumBy(vendas, saleTotal);
+  const aReceber = sumBy(vendas.filter(s => !s.paid), saleTotal);
+  const gastos = sumBy(exps.filter(e => !e.investment), e => e.value);
+  const invest = sumBy(exps.filter(e => e.investment), e => e.value);
+  const lucro = receita - gastos;
+  const melKg = sumBy(data.harvests.filter(h => h.product === 'Mel' && inYear(h.date)), h => parseFloat(h.quantityKg));
+  const custoKg = melKg > 0 ? gastos / melKg : 0;
+  const kgVend = sumBy(vendas, saleKg);
+  const precoMedio = kgVend > 0 ? receita / kgVend : 0;
+  const equilibrio = precoMedio > 0 ? gastos / precoMedio : 0;
+  const stock = lotStock(data);
+  const t = todayISO();
+
+  const years = Array.from(new Set([].concat(data.sales, data.expenses, data.harvests).map(x => String(x.date || '').slice(0, 4)).filter(Boolean))).sort();
+  const yearOpts = '<option value="all">Todas as safras</option>' + years.map(y => '<option value="' + y + '"' + (finYear === y ? ' selected' : '') + '>' + y + '</option>').join('');
+
+  const byProduct = {};
+  vendas.forEach(s => s.items.forEach(i => { byProduct[i.product] = (byProduct[i.product] || 0) + i.units * i.unitPrice; }));
+  const productRows = Object.keys(byProduct).map(p => '<li style="display:flex; justify-content:space-between; padding:0.3rem 0; border-bottom:1px solid var(--slate-700);"><span>' + esc(p) + '</span><strong>' + brl(byProduct[p]) + '</strong></li>').join('') || '<li style="color:var(--slate-400);">Sem vendas no período.</li>';
+
+  const lotOfHarvest = {};
+  data.harvests.forEach(h => { lotOfHarvest[h.id] = h; });
+  const apRows = data.apiaries.map(a => {
+    const rec = sumBy(vendas, s => sumBy(s.items, i => (lotOfHarvest[i.harvestId] && lotOfHarvest[i.harvestId].apiaryId === a.id) ? i.units * i.unitPrice : 0));
+    const gas = sumBy(exps.filter(e => !e.investment && e.apiaryId === a.id), e => e.value);
+    return '<tr><td>' + esc(a.name) + '</td><td>' + brl(rec) + '</td><td>' + brl(gas) + '</td><td style="color:' + (rec - gas >= 0 ? 'var(--emerald-500)' : 'var(--rose-500)') + ';"><strong>' + brl(rec - gas) + '</strong></td></tr>';
+  }).join('');
+
+  const stat = (title, val, color) => '<div class="stat-card"><div class="stat-title">' + title + '</div><div class="stat-value" style="color:' + color + '; font-size:1.4rem;">' + val + '</div></div>';
+  const btnS = 'padding:0.3rem 0.6rem; font-size:0.75rem;';
+
+  return `
+    <div class="glass-panel">
+      <div class="section-header">
+        <div>
+          <h2 class="section-title">💰 Finanças, Estoque & Vendas</h2>
+          <p style="color:var(--slate-400); font-size:0.9rem;">Estoque por lote, vendas fracionadas, perdas, gastos, contas a receber e resultado por apiário.</p>
+        </div>
+        <div style="display:flex; gap:0.5rem; flex-wrap:wrap; align-items:center;">
+          <select id="fin-year" class="form-control" style="width:auto;">${yearOpts}</select>
+          <button class="btn btn-primary" id="btn-new-sale">+ Venda</button>
+          <button class="btn btn-secondary" id="btn-new-loss">📉 Perda/Amostra</button>
+          <button class="btn btn-secondary" id="btn-new-expense">+ Gasto</button>
+          <button class="btn btn-secondary" id="btn-new-package">📦 Embalagem</button>
+        </div>
+      </div>
+
+      <div class="stats-grid" style="grid-template-columns: repeat(auto-fit, minmax(150px, 1fr)); margin-bottom:1.5rem;">
+        ${stat('Receita (vendas)', brl(receita), 'var(--honey-400)')}
+        ${stat('Gastos operacionais', brl(gastos), 'var(--rose-500)')}
+        ${stat('Lucro', brl(lucro), lucro >= 0 ? 'var(--emerald-500)' : 'var(--rose-500)')}
+        ${stat('A receber', brl(aReceber), '#fff')}
+        ${stat('Custo por kg de mel', brl(custoKg), '#fff')}
+        ${stat('Ponto de equilíbrio', equilibrio.toFixed(1) + ' kg', '#fff')}
+      </div>
+      <div style="color:var(--slate-400); font-size:0.8rem; margin:-0.75rem 0 1.25rem;">Investimentos (fora do lucro): ${brl(invest)} · Perdas/amostras: ${sumBy(perdas, saleKg).toFixed(2)} kg · Preço médio vendido: ${brl(precoMedio)}/kg</div>
+
+      <div style="display:grid; grid-template-columns: repeat(auto-fit, minmax(320px, 1fr)); gap:1.25rem; margin-bottom:1.5rem;">
+        <div style="background:rgba(15,23,42,0.6); padding:1rem; border-radius:12px; border:1px solid var(--slate-700);">
+          <h4 style="color:var(--honey-400); margin-bottom:0.5rem;">Receita × Gastos (12 meses)</h4>
+          <div style="position:relative; height:240px;"><canvas id="chart-fin-monthly"></canvas></div>
+        </div>
+        <div style="background:rgba(15,23,42,0.6); padding:1rem; border-radius:12px; border:1px solid var(--slate-700);">
+          <h4 style="color:var(--honey-400); margin-bottom:0.5rem;">Vendas por canal</h4>
+          <div style="position:relative; height:240px;"><canvas id="chart-fin-channel"></canvas></div>
+        </div>
+        <div style="background:rgba(15,23,42,0.6); padding:1rem; border-radius:12px; border:1px solid var(--slate-700);">
+          <h4 style="color:var(--honey-400); margin-bottom:0.5rem;">Receita por produto</h4>
+          <ul style="list-style:none; padding:0; margin:0;">${productRows}</ul>
+        </div>
+      </div>
+
+      <h3 style="color:var(--honey-400); margin:1rem 0 0.5rem;">📦 Estoque por Lote</h3>
+      <div class="table-responsive">
+        ${stock.length === 0 ? '<div style="padding:1.5rem; color:var(--slate-400);">Registre colheitas para formar o estoque.</div>' : `
+        <table class="data-table"><thead><tr><th>Lote</th><th>Produto</th><th>Colhido</th><th>Vendido</th><th>Perdas</th><th>Saldo</th></tr></thead><tbody>
+          ${stock.map(x => '<tr><td><code>' + esc(x.h.batchNumber) + '</code></td><td>' + esc(x.h.product) + '</td><td>' + (parseFloat(x.h.quantityKg) || 0).toFixed(2) + ' kg</td><td>' + x.sold.toFixed(2) + ' kg</td><td>' + x.lost.toFixed(2) + ' kg</td><td><strong style="color:' + (x.balance < -0.0001 ? 'var(--rose-500)' : x.balance < 0.0001 ? 'var(--slate-400)' : 'var(--emerald-500)') + ';">' + x.balance.toFixed(2) + ' kg</strong></td></tr>').join('')}
+        </tbody></table>`}
+      </div>
+
+      <h3 style="color:var(--honey-400); margin:1.5rem 0 0.5rem;">🧾 Vendas e Saídas</h3>
+      <div class="table-responsive">
+        ${sales.length === 0 ? '<div style="padding:1.5rem; color:var(--slate-400);">Nenhuma venda no período.</div>' : `
+        <table class="data-table"><thead><tr><th>Data</th><th>Cliente / Motivo</th><th>Itens</th><th>Total</th><th>Pagamento</th><th>Situação</th><th>Ações</th></tr></thead><tbody>
+          ${sales.slice().sort((a, b) => String(b.date).localeCompare(String(a.date))).map(s => {
+            const itens = s.items.map(i => i.units + '× ' + esc(i.pkgName) + ' <small style="color:var(--slate-400);">(' + esc(i.batchNumber) + ')</small>').join('<br>');
+            const isLoss = s.kind === 'perda';
+            const sit = isLoss ? '<span class="tag-badge">' + esc(s.reason) + '</span>' : (s.paid ? '<span class="status-badge status-ativa">Pago</span>' : '<span class="status-badge status-atencao">A receber' + (s.dueDate ? ' · ' + fmtDate(s.dueDate) : '') + (s.dueDate && s.dueDate < t ? ' ⚠️' : '') + '</span>');
+            return '<tr><td>' + fmtDate(s.date) + '</td><td>' + esc(isLoss ? s.reason : (s.customerName || 'Consumidor')) + '<br><small style="color:var(--slate-400);">' + esc(s.channel || '') + '</small></td><td>' + itens + '</td><td><strong>' + (isLoss ? saleKg(s).toFixed(2) + ' kg' : brl(saleTotal(s))) + '</strong></td><td>' + (isLoss ? '-' : esc(s.payment)) + '</td><td>' + sit + '</td><td style="white-space:nowrap;">' +
+              (!isLoss ? '<button class="btn btn-secondary btn-sale-receipt" data-id="' + s.id + '" style="' + btnS + '" title="Recibo no WhatsApp">🧾</button> ' : '') +
+              (!isLoss && !s.paid ? '<button class="btn btn-primary btn-sale-pay" data-id="' + s.id + '" style="' + btnS + '" title="Dar baixa">✅</button> ' : '') +
+              '<button class="btn btn-danger btn-sale-del" data-id="' + s.id + '" style="' + btnS + '">🗑️</button></td></tr>';
+          }).join('')}
+        </tbody></table>`}
+      </div>
+
+      <h3 style="color:var(--honey-400); margin:1.5rem 0 0.5rem;">🧮 Gastos</h3>
+      <div class="table-responsive">
+        ${exps.length === 0 ? '<div style="padding:1.5rem; color:var(--slate-400);">Nenhum gasto no período.</div>' : `
+        <table class="data-table"><thead><tr><th>Data</th><th>Categoria</th><th>Descrição</th><th>Apiário</th><th>Tipo</th><th>Valor</th><th></th></tr></thead><tbody>
+          ${exps.slice().sort((a, b) => String(b.date).localeCompare(String(a.date))).map(e => {
+            const ap = data.apiaries.find(a => a.id === e.apiaryId);
+            return '<tr><td>' + fmtDate(e.date) + '</td><td>' + esc(e.category) + '</td><td>' + esc(e.desc) + '</td><td>' + esc(ap ? ap.name : 'Geral') + '</td><td>' + (e.investment ? '<span class="tag-badge">Investimento</span>' : esc(e.type)) + '</td><td><strong>' + brl(e.value) + '</strong></td><td><button class="btn btn-danger btn-exp-del" data-id="' + e.id + '" style="' + btnS + '">🗑️</button></td></tr>';
+          }).join('')}
+        </tbody></table>`}
+      </div>
+
+      ${data.apiaries.length ? `
+      <h3 style="color:var(--honey-400); margin:1.5rem 0 0.5rem;">🏞️ Resultado por Apiário</h3>
+      <div class="table-responsive"><table class="data-table"><thead><tr><th>Apiário</th><th>Receita</th><th>Gastos diretos</th><th>Saldo</th></tr></thead><tbody>${apRows}</tbody></table></div>` : ''}
+    </div>`;
+}
+
+function bindFinanceEvents() {
+  const $ = id => document.getElementById(id);
+  $('fin-year')?.addEventListener('change', e => { finYear = e.target.value; renderApp(); });
+  $('btn-new-sale')?.addEventListener('click', () => openSaleModal('venda'));
+  $('btn-new-loss')?.addEventListener('click', () => openSaleModal('perda'));
+  $('btn-new-expense')?.addEventListener('click', openExpenseModal);
+  $('btn-new-package')?.addEventListener('click', () => {
+    const name = (prompt('Nome da embalagem (ex.: Pote 200 g):') || '').trim();
+    if (!name) return;
+    const kg = parseFloat(String(prompt('Peso em kg (ex.: 0,2):') || '').replace(',', '.'));
+    if (!kg || kg <= 0) { alert('Peso inválido.'); return; }
+    const list = FinStore.get(FIN_KEYS.PACKAGES);
+    const base = list.length ? list : DEFAULT_PACKAGES.slice();
+    base.push({ id: 'pk-' + Date.now(), name, kg });
+    FinStore.put(FIN_KEYS.PACKAGES, base);
+    alert('Embalagem adicionada!');
+  });
+  document.querySelectorAll('.btn-sale-del').forEach(b => b.addEventListener('click', () => {
+    if (confirm('Excluir este registro? O saldo do lote será devolvido ao estoque.')) { FinStore.del(FIN_KEYS.SALES, b.dataset.id); renderApp(); }
+  }));
+  document.querySelectorAll('.btn-exp-del').forEach(b => b.addEventListener('click', () => {
+    if (confirm('Excluir este gasto?')) { FinStore.del(FIN_KEYS.EXPENSES, b.dataset.id); renderApp(); }
+  }));
+  document.querySelectorAll('.btn-sale-pay').forEach(b => b.addEventListener('click', () => {
+    const s = FinStore.get(FIN_KEYS.SALES).find(x => x.id === b.dataset.id);
+    if (s) { s.paid = true; s.paidDate = todayISO(); FinStore.save(FIN_KEYS.SALES, s, 'sale'); renderApp(); }
+  }));
+  document.querySelectorAll('.btn-sale-receipt').forEach(b => b.addEventListener('click', () => {
+    const s = FinStore.get(FIN_KEYS.SALES).find(x => x.id === b.dataset.id);
+    if (!s) return;
+    const info = ApisStorage.getApicultorInfo() || {};
+    const txt = '🍯 *' + (info.apiarioPrincipal || 'ApisApp Pro') + '* — Recibo\nData: ' + fmtDate(s.date) + '\nCliente: ' + (s.customerName || '-') + '\n' +
+      s.items.map(i => '• ' + i.units + '× ' + i.pkgName + ' ' + i.product + ' (lote ' + i.batchNumber + ') — ' + brl(i.units * i.unitPrice)).join('\n') +
+      (s.discount ? '\nDesconto: ' + brl(s.discount) : '') + '\n*Total: ' + brl(saleTotal(s)) + '*\nPagamento: ' + s.payment +
+      (s.paid ? ' (pago)' : ' (a receber' + (s.dueDate ? ' até ' + fmtDate(s.dueDate) : '') + ')') + '\nObrigado pela preferência!';
+    const phone = ((FinStore.get(FIN_KEYS.CUSTOMERS).find(c => c.id === s.customerId) || {}).phone || '').replace(/\D/g, '');
+    window.open('https://wa.me/' + (phone ? (phone.length <= 11 ? '55' + phone : phone) : '') + '?text=' + encodeURIComponent(txt), '_blank');
+  }));
+  drawFinCharts(ApisStorage.getAll());
+}
+
+function drawFinCharts(data) {
+  if (typeof Chart === 'undefined') return;
+  finCharts.forEach(c => c.destroy());
+  finCharts = [];
+  Chart.defaults.color = '#94a3b8';
+  const months = [];
+  const now = new Date();
+  for (let i = 11; i >= 0; i--) {
+    const d = new Date(now.getFullYear(), now.getMonth() - i, 1);
+    months.push(d.getFullYear() + '-' + String(d.getMonth() + 1).padStart(2, '0'));
+  }
+  const vend = data.sales.filter(s => s.kind !== 'perda');
+  const rec = months.map(m => sumBy(vend.filter(s => String(s.date).startsWith(m)), saleTotal));
+  const gas = months.map(m => sumBy(data.expenses.filter(e => !e.investment && String(e.date).startsWith(m)), e => e.value));
+  const c1 = document.getElementById('chart-fin-monthly');
+  if (c1) finCharts.push(new Chart(c1, { type: 'bar', data: { labels: months, datasets: [{ label: 'Receita', data: rec, backgroundColor: '#f59e0b' }, { label: 'Gastos', data: gas, backgroundColor: '#ef4444' }] }, options: { responsive: true, maintainAspectRatio: false } }));
+  const ch = {};
+  vend.forEach(s => { ch[s.channel || 'Varejo'] = (ch[s.channel || 'Varejo'] || 0) + saleTotal(s); });
+  const c2 = document.getElementById('chart-fin-channel');
+  if (c2 && Object.keys(ch).length) finCharts.push(new Chart(c2, { type: 'doughnut', data: { labels: Object.keys(ch), datasets: [{ data: Object.values(ch), backgroundColor: ['#f59e0b', '#10b981', '#3b82f6', '#ef4444', '#a855f7'] }] }, options: { responsive: true, maintainAspectRatio: false } }));
+}
+
+// ---------- Modal de Venda fracionada / Perda ----------
+function openSaleModal(kind) {
+  const data = ApisStorage.getAll();
+  const stock = lotStock(data).filter(x => x.balance > 0.0001);
+  if (!stock.length) { alert('Não há lotes com saldo em estoque. Registre uma colheita primeiro.'); return; }
+  const pk = getPackages();
+  const isLoss = kind === 'perda';
+  const lotOpts = stock.map(x => '<option value="' + x.h.id + '">' + esc(x.h.batchNumber) + ' · ' + esc(x.h.product) + ' · saldo ' + x.balance.toFixed(2) + ' kg</option>').join('');
+  const pkOpts = pk.map(p => '<option value="' + p.id + '">' + esc(p.name) + '</option>').join('');
+  const customers = FinStore.get(FIN_KEYS.CUSTOMERS);
+  const rowHtml = () => '<div class="sale-row" style="display:grid; grid-template-columns:2fr 1.4fr 0.8fr 1fr auto; gap:0.4rem; margin-bottom:0.4rem;">' +
+    '<select class="form-control s-lot">' + lotOpts + '</select><select class="form-control s-pk">' + pkOpts + '</select>' +
+    '<input type="number" class="form-control s-units" min="1" step="1" value="1" title="Unidades">' +
+    '<input type="number" class="form-control s-price" min="0" step="0.01" title="Preço da unidade (R$)"' + (isLoss ? ' value="0" disabled' : '') + '>' +
+    '<button type="button" class="btn btn-danger s-del">✕</button></div>';
+
+  const html = `
+    <form id="form-sale" class="form-grid">
+      <div class="form-group"><label>Data:</label><input type="date" id="sale-date" class="form-control" value="${todayISO()}" required></div>
+      ${isLoss ? `
+        <div class="form-group"><label>Motivo:</label><select id="sale-reason" class="form-control">${LOSS_REASONS.map(r => '<option>' + r + '</option>').join('')}</select></div>
+      ` : `
+        <div class="form-group"><label>Cliente:</label><input type="text" id="sale-customer" class="form-control" list="dl-customers" placeholder="Nome (opcional)"><datalist id="dl-customers">${customers.map(c => '<option value="' + esc(c.name) + '">').join('')}</datalist></div>
+        <div class="form-group"><label>Telefone (WhatsApp):</label><input type="tel" id="sale-phone" class="form-control" placeholder="(88) 99999-0000"></div>
+        <div class="form-group"><label>Canal:</label><select id="sale-channel" class="form-control">${SALE_CHANNELS.map(c => '<option>' + c + '</option>').join('')}</select></div>
+        <div class="form-group"><label>Pagamento:</label><select id="sale-payment" class="form-control">${PAY_METHODS.map(c => '<option>' + c + '</option>').join('')}</select></div>
+        <div class="form-group"><label>Vencimento (se a receber):</label><input type="date" id="sale-due" class="form-control"></div>
+        <div class="form-group"><label>Desconto (R$):</label><input type="number" id="sale-discount" class="form-control" min="0" step="0.01" value="0"></div>
+      `}
+      <div style="grid-column:1 / -1;">
+        <label style="font-weight:600;">Itens (lote · embalagem · unidades · preço da unidade):</label>
+        <div id="sale-rows"></div>
+        <button type="button" class="btn btn-secondary" id="btn-add-row" style="font-size:0.8rem;">+ Item</button>
+        <div id="sale-total" style="text-align:right; font-weight:700; margin-top:0.5rem;"></div>
+      </div>
+      <div style="grid-column:1 / -1; display:flex; justify-content:flex-end; gap:0.75rem; margin-top:0.5rem;">
+        <button type="button" class="btn btn-secondary" id="btn-cancel-sale">Cancelar</button>
+        <button type="submit" class="btn btn-primary">${isLoss ? 'Registrar Saída' : 'Registrar Venda'}</button>
+      </div>
+    </form>`;
+  openModal(isLoss ? '📉 Perda / Amostra / Consumo' : '🧾 Nova Venda', html);
+
+  const rowsEl = document.getElementById('sale-rows');
+  const recalc = () => {
+    if (isLoss) return;
+    let tot = 0;
+    rowsEl.querySelectorAll('.sale-row').forEach(r => { tot += (parseInt(r.querySelector('.s-units').value, 10) || 0) * (parseFloat(r.querySelector('.s-price').value) || 0); });
+    tot -= parseFloat(document.getElementById('sale-discount').value) || 0;
+    document.getElementById('sale-total').textContent = 'Total: ' + brl(Math.max(0, tot));
+  };
+  const autoPrice = row => {
+    if (isLoss) return;
+    const h = data.harvests.find(x => x.id === row.querySelector('.s-lot').value);
+    const p = pk.find(x => x.id === row.querySelector('.s-pk').value);
+    if (h && p) row.querySelector('.s-price').value = ((parseFloat(h.unitPriceBrl) || 0) * p.kg).toFixed(2);
+    recalc();
+  };
+  const addRow = () => {
+    rowsEl.insertAdjacentHTML('beforeend', rowHtml());
+    const row = rowsEl.lastElementChild;
+    row.querySelector('.s-lot').addEventListener('change', () => autoPrice(row));
+    row.querySelector('.s-pk').addEventListener('change', () => autoPrice(row));
+    row.querySelector('.s-units').addEventListener('input', recalc);
+    row.querySelector('.s-price').addEventListener('input', recalc);
+    row.querySelector('.s-del').addEventListener('click', () => { if (rowsEl.children.length > 1) { row.remove(); recalc(); } });
+    autoPrice(row);
+  };
+  addRow();
+  document.getElementById('btn-add-row').addEventListener('click', addRow);
+  document.getElementById('sale-discount')?.addEventListener('input', recalc);
+  document.getElementById('sale-payment')?.addEventListener('change', e => {
+    const due = document.getElementById('sale-due');
+    if (e.target.value === 'Fiado' && !due.value) due.value = new Date(Date.now() + 30 * 864e5).toISOString().split('T')[0];
+  });
+  document.getElementById('btn-cancel-sale').addEventListener('click', closeModal);
+
+  document.getElementById('form-sale').addEventListener('submit', e => {
+    e.preventDefault();
+    const items = [];
+    const used = {};
+    let invalid = false;
+    rowsEl.querySelectorAll('.sale-row').forEach(r => {
+      const h = data.harvests.find(x => x.id === r.querySelector('.s-lot').value);
+      const p = pk.find(x => x.id === r.querySelector('.s-pk').value);
+      const units = parseInt(r.querySelector('.s-units').value, 10);
+      const price = isLoss ? 0 : (parseFloat(r.querySelector('.s-price').value) || 0);
+      if (!h || !p || !units || units < 1) { invalid = true; return; }
+      used[h.id] = (used[h.id] || 0) + units * p.kg;
+      items.push({ harvestId: h.id, batchNumber: h.batchNumber, product: h.product, pkgName: p.name, pkgKg: p.kg, units, unitPrice: price });
+    });
+    if (invalid || !items.length) { alert('Confira os itens: informe lote, embalagem e unidades.'); return; }
+    for (const id of Object.keys(used)) {
+      const st = stock.find(x => x.h.id === id);
+      if (used[id] > st.balance + 0.0001) { alert('Quantidade acima do saldo do lote ' + st.h.batchNumber + ' (saldo ' + st.balance.toFixed(2) + ' kg).'); return; }
+    }
+    const sale = { date: document.getElementById('sale-date').value, kind: isLoss ? 'perda' : 'venda', items };
+    if (isLoss) {
+      sale.reason = document.getElementById('sale-reason').value;
+      sale.paid = true;
+    } else {
+      const name = document.getElementById('sale-customer').value.trim();
+      const phone = document.getElementById('sale-phone').value.trim();
+      sale.channel = document.getElementById('sale-channel').value;
+      sale.payment = document.getElementById('sale-payment').value;
+      sale.discount = parseFloat(document.getElementById('sale-discount').value) || 0;
+      sale.paid = sale.payment !== 'Fiado';
+      sale.dueDate = sale.paid ? '' : document.getElementById('sale-due').value;
+      sale.customerName = name;
+      if (name) {
+        const list = FinStore.get(FIN_KEYS.CUSTOMERS);
+        let c = list.find(x => x.name.toLowerCase() === name.toLowerCase());
+        if (!c) c = { name, phone };
+        else if (phone) c.phone = phone;
+        FinStore.save(FIN_KEYS.CUSTOMERS, c, 'cli');
+        sale.customerId = c.id;
+      }
+    }
+    FinStore.save(FIN_KEYS.SALES, sale, 'sale');
+    closeModal();
+    renderApp();
+  });
+}
+
+// ---------- Modal de Gasto ----------
+function openExpenseModal() {
+  const data = ApisStorage.getAll();
+  const html = `
+    <form id="form-expense" class="form-grid">
+      <div class="form-group"><label>Data:</label><input type="date" id="exp-date" class="form-control" value="${todayISO()}" required></div>
+      <div class="form-group"><label>Categoria:</label><select id="exp-cat" class="form-control">${EXPENSE_CATEGORIES.map(c => '<option>' + c + '</option>').join('')}</select></div>
+      <div class="form-group"><label>Descrição:</label><input type="text" id="exp-desc" class="form-control" placeholder="Ex.: 50 kg de açúcar" required></div>
+      <div class="form-group"><label>Valor total (R$):</label><input type="number" id="exp-value" class="form-control" min="0.01" step="0.01" required></div>
+      <div class="form-group"><label>Apiário (opcional):</label><select id="exp-apiary" class="form-control"><option value="">Geral</option>${data.apiaries.map(a => '<option value="' + a.id + '">' + esc(a.name) + '</option>').join('')}</select></div>
+      <div class="form-group"><label>Tipo:</label><select id="exp-type" class="form-control"><option>Variável</option><option>Fixo</option></select></div>
+      <div class="form-group"><label>Parcelas (mensais):</label><input type="number" id="exp-inst" class="form-control" min="1" max="36" step="1" value="1"></div>
+      <div class="form-group"><label><input type="checkbox" id="exp-invest"> Investimento (equipamento/caixas)</label></div>
+      <div style="grid-column:1 / -1; display:flex; justify-content:flex-end; gap:0.75rem; margin-top:0.5rem;">
+        <button type="button" class="btn btn-secondary" id="btn-cancel-exp">Cancelar</button>
+        <button type="submit" class="btn btn-primary">Salvar Gasto</button>
+      </div>
+    </form>`;
+  openModal('🧮 Novo Gasto', html);
+  document.getElementById('btn-cancel-exp').addEventListener('click', closeModal);
+  document.getElementById('form-expense').addEventListener('submit', e => {
+    e.preventDefault();
+    const total = parseFloat(document.getElementById('exp-value').value);
+    const n = Math.max(1, parseInt(document.getElementById('exp-inst').value, 10) || 1);
+    if (!total || total <= 0) { alert('Informe um valor válido.'); return; }
+    const [y, m, d] = document.getElementById('exp-date').value.split('-').map(Number);
+    const base = {
+      category: document.getElementById('exp-cat').value,
+      apiaryId: document.getElementById('exp-apiary').value,
+      type: document.getElementById('exp-type').value,
+      investment: document.getElementById('exp-invest').checked
+    };
+    const desc = document.getElementById('exp-desc').value.trim();
+    for (let i = 0; i < n; i++) {
+      const dt = new Date(y, m - 1 + i, Math.min(d, 28), 12);
+      FinStore.save(FIN_KEYS.EXPENSES, Object.assign({}, base, {
+        date: dt.toISOString().split('T')[0],
+        desc: n > 1 ? desc + ' (' + (i + 1) + '/' + n + ')' : desc,
+        value: Math.round((total / n) * 100) / 100
+      }), 'exp');
+    }
+    closeModal();
+    renderApp();
+  });
+}
+
+// ==========================================================================
+// 4. MÓDULO MANEJO (alimentação, tratamentos, pesagem, divisão), TAREFAS E RELATÓRIO (v1.4.0)
+// ==========================================================================
+
+const MAN_KEYS = { MAN: 'apisapp_manejo', TASKS: 'apisapp_tasks' };
+const MAN_KINDS = { alim: '🍬 Alimentação', trat: '💊 Tratamento', peso: '⚖️ Pesagem', divisao: '🔀 Divisão/Junção' };
+let manFilter = 'all';
+
+function manDetail(r, all) {
+  if (r.kind === 'alim') return esc(r.tipo) + ' · ' + r.qtd + ' por colmeia' + (r.custo ? ' · ' + brl(r.custo) : '');
+  if (r.kind === 'trat') return esc(r.produto) + (r.dose ? ' (' + esc(r.dose) + ')' : '') + (r.motivo ? ' — ' + esc(r.motivo) : '') + (r.carenciaAte ? '<br><small style="color:var(--honey-400);">Carência até ' + fmtDate(r.carenciaAte) + '</small>' : '');
+  if (r.kind === 'peso') {
+    const prev = all.filter(x => x.kind === 'peso' && x.hiveId === r.hiveId && x.date < r.date).sort((a, b) => b.date.localeCompare(a.date))[0];
+    const d = prev ? r.pesoKg - prev.pesoKg : null;
+    return r.pesoKg + ' kg' + (d === null ? '' : ' <small style="color:' + (d >= 0 ? 'var(--emerald-500)' : 'var(--rose-500)') + ';">(' + (d >= 0 ? '+' : '') + d.toFixed(1) + ' kg)</small>');
+  }
+  return esc(r.sub) + (r.destino ? ' → ' + esc(r.destino) : '') + (r.notas ? ' — ' + esc(r.notas) : '');
+}
+
+function renderManejoView(data) {
+  const recs = FinStore.get(MAN_KEYS.MAN);
+  const tasks = FinStore.get(MAN_KEYS.TASKS);
+  const pend = tasks.filter(t => !t.done).sort((a, b) => String(a.date).localeCompare(String(b.date)));
+  const t = todayISO();
+  const ym = t.slice(0, 7);
+  const carencia = recs.filter(r => r.kind === 'trat' && r.carenciaAte && r.carenciaAte >= t);
+  const shown = recs.filter(r => manFilter === 'all' || r.kind === manFilter).sort((a, b) => String(b.date).localeCompare(String(a.date)));
+  const btnS = 'padding:0.3rem 0.6rem; font-size:0.75rem;';
+  const stat = (title, val, color) => '<div class="stat-card"><div class="stat-title">' + title + '</div><div class="stat-value" style="color:' + color + '; font-size:1.4rem;">' + val + '</div></div>';
+
+  return `
+    <div class="glass-panel">
+      <div class="section-header">
+        <div>
+          <h2 class="section-title">🛠️ Manejo & Tarefas</h2>
+          <p style="color:var(--slate-400); font-size:0.9rem;">Alimentação, tratamentos com carência, pesagem, divisão/junção de enxames e lembretes.</p>
+        </div>
+        <div style="display:flex; gap:0.5rem; flex-wrap:wrap;">
+          ${Object.keys(MAN_KINDS).map(k => '<button class="btn btn-primary btn-new-man" data-kind="' + k + '">+ ' + MAN_KINDS[k] + '</button>').join('')}
+          <button class="btn btn-secondary" id="btn-new-task">⏰ Tarefa</button>
+          <button class="btn btn-secondary" id="btn-report">🖨️ Relatório anual</button>
+        </div>
+      </div>
+
+      <div class="stats-grid" style="grid-template-columns: repeat(auto-fit, minmax(160px, 1fr)); margin-bottom:1.5rem;">
+        ${stat('Alimentações no mês', recs.filter(r => r.kind === 'alim' && r.date.startsWith(ym)).length, 'var(--honey-400)')}
+        ${stat('Colmeias em carência', new Set(carencia.map(r => r.hiveId)).size, carencia.length ? 'var(--rose-500)' : 'var(--emerald-500)')}
+        ${stat('Tarefas pendentes', pend.length, '#fff')}
+      </div>
+
+      <h3 style="color:var(--honey-400); margin-bottom:0.5rem;">⏰ Tarefas e Lembretes</h3>
+      <div style="margin-bottom:1.5rem;">
+        ${pend.length === 0 ? '<div style="color:var(--slate-400); padding:0.5rem;">Nenhuma tarefa pendente.</div>' : pend.map(k => '<div style="display:flex; align-items:center; gap:0.6rem; padding:0.4rem 0.6rem; background:rgba(30,41,59,0.4); border-radius:8px; margin-bottom:0.4rem;"><button class="btn btn-primary btn-task-done" data-id="' + k.id + '" style="' + btnS + '">✔</button><span style="flex:1;' + (k.date < t ? ' color:var(--rose-500);' : '') + '">' + esc(k.title) + (k.hiveCode ? ' <small>(' + esc(k.hiveCode) + ')</small>' : '') + '</span><small>' + fmtDate(k.date) + (k.date < t ? ' ⚠️' : '') + '</small><button class="btn btn-danger btn-task-del" data-id="' + k.id + '" style="' + btnS + '">🗑️</button></div>').join('')}
+      </div>
+
+      <div style="display:flex; justify-content:space-between; align-items:center; flex-wrap:wrap; gap:0.5rem;">
+        <h3 style="color:var(--honey-400); margin:0;">📒 Registros de Manejo</h3>
+        <select id="man-filter" class="form-control" style="width:auto;"><option value="all">Todos</option>${Object.keys(MAN_KINDS).map(k => '<option value="' + k + '"' + (manFilter === k ? ' selected' : '') + '>' + MAN_KINDS[k] + '</option>').join('')}</select>
+      </div>
+      <div class="table-responsive">
+        ${shown.length === 0 ? '<div style="padding:1.5rem; color:var(--slate-400);">Nenhum registro.</div>' : `
+        <table class="data-table"><thead><tr><th>Data</th><th>Tipo</th><th>Colmeia</th><th>Detalhes</th><th></th></tr></thead><tbody>
+          ${shown.map(r => '<tr><td>' + fmtDate(r.date) + '</td><td>' + MAN_KINDS[r.kind] + '</td><td>' + esc(r.hiveCode || '-') + '</td><td>' + manDetail(r, recs) + '</td><td><button class="btn btn-danger btn-man-del" data-id="' + r.id + '" style="' + btnS + '">🗑️</button></td></tr>').join('')}
+        </tbody></table>`}
+      </div>
+    </div>`;
+}
+
+function bindManejoEvents() {
+  const $ = id => document.getElementById(id);
+  document.querySelectorAll('.btn-new-man').forEach(b => b.addEventListener('click', () => openManejoModal(b.dataset.kind)));
+  $('man-filter')?.addEventListener('change', e => { manFilter = e.target.value; renderApp(); });
+  $('btn-report')?.addEventListener('click', openAnnualReport);
+  $('btn-new-task')?.addEventListener('click', () => {
+    const title = (prompt('Tarefa / lembrete (ex.: revisar apiário Sede):') || '').trim();
+    if (!title) return;
+    const date = (prompt('Data (AAAA-MM-DD):', todayISO()) || '').trim();
+    if (!/^\d{4}-\d{2}-\d{2}$/.test(date)) { alert('Data inválida. Use o formato AAAA-MM-DD.'); return; }
+    const code = (prompt('Código da colmeia (opcional):') || '').trim();
+    FinStore.save(MAN_KEYS.TASKS, { title, date, hiveCode: code, done: false }, 'task');
+    renderApp();
+  });
+  document.querySelectorAll('.btn-task-done').forEach(b => b.addEventListener('click', () => {
+    const k = FinStore.get(MAN_KEYS.TASKS).find(x => x.id === b.dataset.id);
+    if (k) { k.done = true; FinStore.save(MAN_KEYS.TASKS, k, 'task'); renderApp(); }
+  }));
+  document.querySelectorAll('.btn-task-del').forEach(b => b.addEventListener('click', () => { FinStore.del(MAN_KEYS.TASKS, b.dataset.id); renderApp(); }));
+  document.querySelectorAll('.btn-man-del').forEach(b => b.addEventListener('click', () => {
+    if (confirm('Excluir este registro?')) { FinStore.del(MAN_KEYS.MAN, b.dataset.id); renderApp(); }
+  }));
+}
+
+function openManejoModal(kind) {
+  const data = ApisStorage.getAll();
+  if (!data.hives.length) { alert('Cadastre ao menos uma colmeia antes de registrar manejo.'); return; }
+  const hiveOpts = data.hives.map(h => '<option value="' + h.id + '" data-ap="' + h.apiaryId + '">' + esc(h.code) + ' — ' + esc(h.name) + '</option>').join('');
+  let extra = '';
+  if (kind === 'alim') extra = `
+      <div class="form-group"><label>Tipo:</label><select id="m-tipo" class="form-control"><option>Xarope 1:1</option><option>Xarope 2:1</option><option>Proteico</option><option>Candi</option><option>Outro</option></select></div>
+      <div class="form-group"><label>Quantidade por colmeia (L ou kg):</label><input type="number" id="m-qtd" class="form-control" min="0" step="0.1" value="1" required></div>
+      <div class="form-group"><label>Baixar do estoque (opcional):</label><select id="m-ins" class="form-control"><option value="">Não dar baixa</option>${FinStore.get('apisapp_insumos').map(i => '<option value="' + i.id + '">' + esc(i.name) + ' (' + i.qty + ' ' + esc(i.unit) + ')</option>').join('')}</select></div>
+      <div class="form-group"><label>Custo total (R$, opcional — vai para Gastos):</label><input type="number" id="m-custo" class="form-control" min="0" step="0.01"></div>`;
+  if (kind === 'trat') extra = `
+      <div class="form-group"><label>Produto:</label><input type="text" id="m-produto" class="form-control" required></div>
+      <div class="form-group"><label>Dose:</label><input type="text" id="m-dose" class="form-control"></div>
+      <div class="form-group"><label>Motivo / praga:</label><input type="text" id="m-motivo" class="form-control" placeholder="Ex.: traça, formiga"></div>
+      <div class="form-group"><label>Carência (dias sem colher mel):</label><input type="number" id="m-carencia" class="form-control" min="0" step="1" value="0"></div>`;
+  if (kind === 'peso') extra = `<div class="form-group"><label>Peso da colmeia (kg):</label><input type="number" id="m-peso" class="form-control" min="0" step="0.1" required></div>`;
+  if (kind === 'divisao') extra = `
+      <div class="form-group"><label>Operação:</label><select id="m-sub" class="form-control"><option>Divisão</option><option>Captura de enxame</option><option>Junção</option></select></div>
+      <div class="form-group"><label>Destino / nova colmeia:</label><input type="text" id="m-destino" class="form-control" placeholder="Código ou descrição"></div>
+      <div class="form-group"><label>Notas:</label><input type="text" id="m-notas" class="form-control"></div>`;
+  const allOpt = kind === 'divisao' ? '' : '<option value="__all__">Todas do apiário</option>';
+  openModal(MAN_KINDS[kind], `
+    <form id="form-man" class="form-grid">
+      <div class="form-group"><label>Data:</label><input type="date" id="m-date" class="form-control" value="${todayISO()}" required></div>
+      <div class="form-group"><label>Apiário:</label><select id="m-ap" class="form-control">${data.apiaries.map(a => '<option value="' + a.id + '">' + esc(a.name) + '</option>').join('')}</select></div>
+      <div class="form-group"><label>Colmeia${kind === 'divisao' ? ' (origem)' : ''}:</label><select id="m-hive" class="form-control">${allOpt}${hiveOpts}</select></div>
+      ${extra}
+      <div style="grid-column:1 / -1; display:flex; justify-content:flex-end; gap:0.75rem; margin-top:0.5rem;">
+        <button type="button" class="btn btn-secondary" id="btn-cancel-man">Cancelar</button>
+        <button type="submit" class="btn btn-primary">Salvar</button>
+      </div>
+    </form>`);
+  const apSel = document.getElementById('m-ap'), hvSel = document.getElementById('m-hive');
+  const filterHives = () => {
+    Array.from(hvSel.options).forEach(o => { o.hidden = o.value !== '__all__' && o.dataset.ap !== apSel.value; });
+    const first = Array.from(hvSel.options).find(o => !o.hidden);
+    if (first) hvSel.value = first.value;
+  };
+  apSel.addEventListener('change', filterHives);
+  filterHives();
+  document.getElementById('btn-cancel-man').addEventListener('click', closeModal);
+  document.getElementById('form-man').addEventListener('submit', e => {
+    e.preventDefault();
+    const date = document.getElementById('m-date').value;
+    const apId = apSel.value;
+    const targets = hvSel.value === '__all__' ? data.hives.filter(h => h.apiaryId === apId) : data.hives.filter(h => h.id === hvSel.value);
+    if (!targets.length) { alert('Nenhuma colmeia neste apiário.'); return; }
+    const v = id => (document.getElementById(id) || {}).value;
+    targets.forEach(h => {
+      const r = { date, kind, hiveId: h.id, hiveCode: h.code, apiaryId: h.apiaryId };
+      if (kind === 'alim') Object.assign(r, { tipo: v('m-tipo'), qtd: parseFloat(v('m-qtd')) || 0 });
+      if (kind === 'trat') {
+        const dias = parseInt(v('m-carencia'), 10) || 0;
+        const fim = new Date(date + 'T12:00:00'); fim.setDate(fim.getDate() + dias);
+        Object.assign(r, { produto: v('m-produto').trim(), dose: v('m-dose').trim(), motivo: v('m-motivo').trim(), carenciaAte: dias ? fim.toISOString().split('T')[0] : '' });
+      }
+      if (kind === 'peso') r.pesoKg = parseFloat(v('m-peso')) || 0;
+      if (kind === 'divisao') Object.assign(r, { sub: v('m-sub'), destino: v('m-destino').trim(), notas: v('m-notas').trim() });
+      FinStore.save(MAN_KEYS.MAN, r, 'man');
+    });
+    const insId = v('m-ins');
+    if (kind === 'alim' && insId) {
+      const it = FinStore.get('apisapp_insumos').find(x => x.id === insId);
+      if (it) { it.qty = Math.round((it.qty - (parseFloat(v('m-qtd')) || 0) * targets.length) * 1000) / 1000; FinStore.save('apisapp_insumos', it, 'ins'); }
+    }
+    const custo = parseFloat(v('m-custo')) || 0;
+    if (kind === 'alim' && custo > 0) {
+      FinStore.save(FIN_KEYS.EXPENSES, { date, category: EXPENSE_CATEGORIES[0], desc: 'Alimentação ' + v('m-tipo'), value: custo, apiaryId: apId, type: 'Variável', investment: false }, 'exp');
+    }
+    closeModal();
+    renderApp();
+  });
+}
+
+// ---------- Relatório anual (imprimir / salvar em PDF) ----------
+function openAnnualReport() {
+  const year = (prompt('Ano do relatório:', String(new Date().getFullYear())) || '').trim();
+  if (!/^\d{4}$/.test(year)) return;
+  const data = ApisStorage.getAll();
+  const info = ApisStorage.getApicultorInfo() || {};
+  const inY = d => String(d || '').startsWith(year);
+  const harv = data.harvests.filter(h => inY(h.date));
+  const vend = data.sales.filter(s => inY(s.date) && s.kind !== 'perda');
+  const perdas = data.sales.filter(s => inY(s.date) && s.kind === 'perda');
+  const exps = data.expenses.filter(e => inY(e.date));
+  const man = FinStore.get(MAN_KEYS.MAN).filter(r => inY(r.date));
+  const receita = sumBy(vend, saleTotal);
+  const gastos = sumBy(exps.filter(e => !e.investment), e => e.value);
+  const prods = {};
+  harv.forEach(h => { prods[h.product] = (prods[h.product] || 0) + (parseFloat(h.quantityKg) || 0); });
+  const row = (a, b) => '<tr><td>' + a + '</td><td style="text-align:right;">' + b + '</td></tr>';
+  const html = '<html><head><meta charset="utf-8"><title>Relatório ' + year + '</title><style>body{font-family:Arial,sans-serif;padding:24px;color:#111}h1{color:#b45309}h2{border-bottom:2px solid #f59e0b;padding-bottom:4px;margin-top:22px}table{width:100%;border-collapse:collapse}td{padding:5px;border-bottom:1px solid #ddd}</style></head><body>' +
+    '<h1>🍯 Relatório Anual ' + year + '</h1><p><strong>' + esc(info.nomeApicultor || '') + '</strong> — ' + esc(info.apiarioPrincipal || '') + '<br>Gerado em ' + fmtDate(todayISO()) + ' pelo ApisApp Pro</p>' +
+    '<h2>Estrutura</h2><table>' + row('Apiários/núcleos', data.apiaries.length) + row('Colmeias', data.hives.length) + row('Rainhas cadastradas', data.queens.length) + row('Inspeções no ano', data.inspections.filter(i => inY(i.date)).length) + '</table>' +
+    '<h2>Produção</h2><table>' + (Object.keys(prods).map(p => row(esc(p), prods[p].toFixed(2) + ' kg')).join('') || row('Sem colheitas', '-')) + '</table>' +
+    '<h2>Vendas e Resultado</h2><table>' + row('Vendas realizadas', vend.length) + row('Quantidade vendida', sumBy(vend, saleKg).toFixed(2) + ' kg') + row('Perdas/amostras', sumBy(perdas, saleKg).toFixed(2) + ' kg') + row('Receita', brl(receita)) + row('Gastos operacionais', brl(gastos)) + row('Investimentos', brl(sumBy(exps.filter(e => e.investment), e => e.value))) + row('<strong>Lucro</strong>', '<strong>' + brl(receita - gastos) + '</strong>') + '</table>' +
+    '<h2>Estoque atual por lote</h2><table>' + (lotStock(data).filter(x => x.balance > 0.0001).map(x => row('Lote ' + esc(x.h.batchNumber) + ' (' + esc(x.h.product) + ')', x.balance.toFixed(2) + ' kg')).join('') || row('Sem saldo', '-')) + '</table>' +
+    '<h2>Manejo</h2><table>' + Object.keys(MAN_KINDS).map(k => row(MAN_KINDS[k], man.filter(r => r.kind === k).length)).join('') + '</table>' +
+    '<script>window.onload=function(){window.print();}<\/script></body></html>';
+  const w = window.open('', '_blank');
+  if (!w) { alert('Permita pop-ups para gerar o relatório.'); return; }
+  w.document.write(html);
+  w.document.close();
+}
+
+// ---------- Alertas extras (tarefas e carência) ----------
+function buildManejoAlerts() {
+  const A = [];
+  const t = todayISO();
+  FinStore.get(MAN_KEYS.TASKS).filter(k => !k.done && k.date <= t).forEach(k => A.push('⏰ ' + (k.date < t ? 'Atrasada: ' : 'Hoje: ') + esc(k.title)));
+  FinStore.get(MAN_KEYS.MAN).filter(r => r.kind === 'trat' && r.carenciaAte && r.carenciaAte >= t)
+    .forEach(r => A.push('💊 ' + esc(r.hiveCode) + ' em carência até ' + fmtDate(r.carenciaAte) + ' — não colher mel desta colmeia'));
+  return A;
+}
+
+// ==========================================================================
+// 5. CLIMA REAL, FICHA DA COLMEIA + RANKING, ESTOQUE DE INSUMOS (v1.5.0)
+// ==========================================================================
+
+// ---------- Clima real (Open-Meteo, sem chave) ----------
+function parseCoords(s) {
+  const m = String(s || '').trim().match(/^([-+]?\d+(\.\d+)?),\s*([-+]?\d+(\.\d+)?)$/);
+  return m ? { lat: +m[1], lon: +m[3] } : null;
+}
+function getWeatherCache() {
+  try { return JSON.parse(localStorage.getItem('apisapp_weather') || 'null'); } catch (e) { return null; }
+}
+async function refreshWeather() {
+  if (!navigator.onLine) return;
+  const ap = ApisStorage.getApiaries().find(a => parseCoords(a.location));
+  if (!ap) return;
+  const c = getWeatherCache();
+  if (c && Date.now() - c.at < 1800000) return;
+  try {
+    const co = parseCoords(ap.location);
+    const r = await fetch('https://api.open-meteo.com/v1/forecast?latitude=' + co.lat + '&longitude=' + co.lon + '&current=temperature_2m,wind_speed_10m&daily=precipitation_sum&past_days=7&forecast_days=1&timezone=auto');
+    const j = await r.json();
+    const rain7 = (j.daily.precipitation_sum || []).slice(0, 7).reduce((a, b) => a + (b || 0), 0);
+    localStorage.setItem('apisapp_weather', JSON.stringify({ at: Date.now(), temp: Math.round(j.current.temperature_2m), wind: Math.round(j.current.wind_speed_10m), rain7: Math.round(rain7), place: ap.name }));
+    if (currentTab === 'dashboard') renderApp();
+  } catch (e) { /* offline: mantém o último valor salvo */ }
+}
+
+// ---------- Estoque de insumos ----------
+const INS_KEY = 'apisapp_insumos';
+
+function renderInsumosView(data) {
+  const list = FinStore.get(INS_KEY);
+  const btnS = 'padding:0.3rem 0.6rem; font-size:0.75rem;';
+  return `
+    <div class="glass-panel">
+      <div class="section-header">
+        <div>
+          <h2 class="section-title">📦 Estoque de Insumos</h2>
+          <p style="color:var(--slate-400); font-size:0.9rem;">Açúcar, potes, rótulos, cera alveolada etc. Alimentações registradas podem dar baixa automática.</p>
+        </div>
+        <button class="btn btn-primary" id="btn-new-ins">+ Insumo</button>
+      </div>
+      <div class="table-responsive">
+        ${list.length === 0 ? '<div style="padding:1.5rem; color:var(--slate-400);">Nenhum insumo cadastrado.</div>' : `
+        <table class="data-table"><thead><tr><th>Insumo</th><th>Saldo</th><th>Mínimo</th><th>Situação</th><th>Ações</th></tr></thead><tbody>
+          ${list.map(i => {
+            const low = i.qty <= i.min;
+            return '<tr><td><strong>' + esc(i.name) + '</strong></td><td>' + i.qty + ' ' + esc(i.unit) + '</td><td>' + i.min + ' ' + esc(i.unit) + '</td><td>' + (low ? '<span class="status-badge status-atencao">Acabando</span>' : '<span class="status-badge status-ativa">OK</span>') + '</td><td style="white-space:nowrap;"><button class="btn btn-primary btn-ins-in" data-id="' + i.id + '" style="' + btnS + '">＋ Entrada</button> <button class="btn btn-secondary btn-ins-out" data-id="' + i.id + '" style="' + btnS + '">－ Baixa</button> <button class="btn btn-danger btn-ins-del" data-id="' + i.id + '" style="' + btnS + '">🗑️</button></td></tr>';
+          }).join('')}
+        </tbody></table>`}
+      </div>
+    </div>`;
+}
+
+function bindInsumosEvents() {
+  const num = txt => parseFloat(String(prompt(txt) || '').replace(',', '.'));
+  document.getElementById('btn-new-ins')?.addEventListener('click', () => {
+    const name = (prompt('Nome do insumo (ex.: Açúcar, Pote 500 g, Rótulo):') || '').trim();
+    if (!name) return;
+    const unit = (prompt('Unidade (kg, L, un):', 'un') || 'un').trim();
+    const qty = num('Quantidade atual:');
+    const min = num('Quantidade mínima para alertar:');
+    FinStore.save(INS_KEY, { name, unit, qty: qty || 0, min: min || 0 }, 'ins');
+    renderApp();
+  });
+  const adjust = (id, sign) => {
+    const it = FinStore.get(INS_KEY).find(x => x.id === id);
+    const q = num(sign > 0 ? 'Quantidade que entrou:' : 'Quantidade que saiu:');
+    if (!it || !q || q <= 0) return;
+    it.qty = Math.round((it.qty + sign * q) * 1000) / 1000;
+    FinStore.save(INS_KEY, it, 'ins');
+    renderApp();
+  };
+  document.querySelectorAll('.btn-ins-in').forEach(b => b.addEventListener('click', () => adjust(b.dataset.id, 1)));
+  document.querySelectorAll('.btn-ins-out').forEach(b => b.addEventListener('click', () => adjust(b.dataset.id, -1)));
+  document.querySelectorAll('.btn-ins-del').forEach(b => b.addEventListener('click', () => {
+    if (confirm('Excluir este insumo?')) { FinStore.del(INS_KEY, b.dataset.id); renderApp(); }
+  }));
+}
+
+// ---------- Ficha da colmeia + ranking de produtividade ----------
+let hiveCardId = '';
+let hiveCardChart = null;
+
+function renderHiveCardView(data) {
+  if (!data.hives.length) return '<div class="glass-panel"><h2 class="section-title">🐝 Fichas das Colmeias</h2><p style="color:var(--slate-400);">Cadastre colmeias para ver as fichas.</p></div>';
+  if (!data.hives.some(h => h.id === hiveCardId)) hiveCardId = data.hives[0].id;
+  const h = data.hives.find(x => x.id === hiveCardId);
+  const ap = data.apiaries.find(a => a.id === h.apiaryId);
+  const man = FinStore.get(MAN_KEYS.MAN);
+
+  const ev = [];
+  data.inspections.filter(i => i.hiveId === h.id).forEach(i => ev.push({ d: i.date, t: '📋 Inspeção', x: (i.actionsTaken || '') + (i.pestsFound ? ' · Pragas: ' + i.pestsFound : '') }));
+  man.filter(r => r.hiveId === h.id).forEach(r => ev.push({ d: r.date, t: MAN_KINDS[r.kind], x: manDetail(r, man).replace(/<[^>]+>/g, ' ') }));
+  data.harvests.filter(x => x.hiveId === h.id).forEach(x => ev.push({ d: x.date, t: '🍯 Colheita', x: x.product + ' ' + x.quantityKg + ' kg (lote ' + x.batchNumber + ')' }));
+  ev.sort((a, b) => String(b.d).localeCompare(String(a.d)));
+
+  const honeyBy = {};
+  data.harvests.filter(x => x.product === 'Mel' && x.hiveId).forEach(x => { honeyBy[x.hiveId] = (honeyBy[x.hiveId] || 0) + (parseFloat(x.quantityKg) || 0); });
+  const rank = data.hives.map(x => ({ x, kg: honeyBy[x.id] || 0 })).sort((a, b) => b.kg - a.kg);
+  const unassigned = sumBy(data.harvests.filter(x => x.product === 'Mel' && !x.hiveId), x => parseFloat(x.quantityKg));
+  const pesos = man.filter(r => r.kind === 'peso' && r.hiveId === h.id).length;
+
+  return `
+    <div class="glass-panel">
+      <div class="section-header">
+        <div>
+          <h2 class="section-title">🐝 Ficha da Colmeia</h2>
+          <p style="color:var(--slate-400); font-size:0.9rem;">Histórico completo e produtividade. Para o ranking, informe a colmeia ao registrar a colheita.</p>
+        </div>
+        <select id="hive-card-sel" class="form-control" style="width:auto;">${data.hives.map(x => '<option value="' + x.id + '"' + (x.id === h.id ? ' selected' : '') + '>' + esc(x.code) + ' — ' + esc(x.name) + '</option>').join('')}</select>
+      </div>
+      <div class="stats-grid" style="grid-template-columns: repeat(auto-fit, minmax(150px, 1fr)); margin-bottom:1.25rem;">
+        <div class="stat-card"><div class="stat-title">Apiário</div><div class="stat-value" style="font-size:1.1rem;">${esc(ap ? ap.name : '-')}</div></div>
+        <div class="stat-card"><div class="stat-title">Rainha</div><div class="stat-value" style="font-size:1.1rem;">👑 ${esc((h.queen && h.queen.year) || 'N/A')}</div></div>
+        <div class="stat-card"><div class="stat-title">Status / Saúde</div><div class="stat-value" style="font-size:1.1rem;">${esc(h.status)} · ${esc(h.healthScore || '-')}</div></div>
+        <div class="stat-card"><div class="stat-title">Mel da colmeia</div><div class="stat-value" style="font-size:1.1rem; color:var(--honey-400);">${(honeyBy[h.id] || 0).toFixed(1)} kg</div></div>
+      </div>
+      ${pesos > 1 ? '<div style="background:rgba(15,23,42,0.6); padding:1rem; border-radius:12px; border:1px solid var(--slate-700); margin-bottom:1.25rem;"><h4 style="color:var(--honey-400); margin-bottom:0.5rem;">⚖️ Curva de peso</h4><div style="position:relative; height:220px;"><canvas id="chart-hive-weight"></canvas></div></div>' : ''}
+      <h3 style="color:var(--honey-400); margin-bottom:0.5rem;">🕒 Linha do tempo</h3>
+      <div class="table-responsive" style="margin-bottom:1.5rem;">
+        ${ev.length === 0 ? '<div style="padding:1rem; color:var(--slate-400);">Sem eventos para esta colmeia.</div>' : '<table class="data-table"><thead><tr><th>Data</th><th>Evento</th><th>Detalhes</th></tr></thead><tbody>' + ev.slice(0, 60).map(e => '<tr><td>' + fmtDate(e.d) + '</td><td>' + e.t + '</td><td>' + esc(e.x) + '</td></tr>').join('') + '</tbody></table>'}
+      </div>
+      <h3 style="color:var(--honey-400); margin-bottom:0.5rem;">🏆 Ranking de produtividade (mel)</h3>
+      <div class="table-responsive">
+        <table class="data-table"><thead><tr><th>#</th><th>Colmeia</th><th>Rainha</th><th>Mel (kg)</th></tr></thead><tbody>
+          ${rank.map((r, i) => '<tr><td>' + (i + 1) + '</td><td>' + esc(r.x.code) + ' — ' + esc(r.x.name) + '</td><td>' + esc((r.x.queen && r.x.queen.year) || '-') + '</td><td><strong>' + r.kg.toFixed(1) + '</strong></td></tr>').join('')}
+        </tbody></table>
+      </div>
+      ${unassigned > 0 ? '<div style="color:var(--slate-400); font-size:0.8rem; margin-top:0.5rem;">' + unassigned.toFixed(1) + ' kg de mel colhidos sem colmeia informada (não entram no ranking).</div>' : ''}
+    </div>`;
+}
+
+function bindHiveCardEvents() {
+  document.getElementById('hive-card-sel')?.addEventListener('change', e => { hiveCardId = e.target.value; renderApp(); });
+  const cv = document.getElementById('chart-hive-weight');
+  if (!cv || typeof Chart === 'undefined') return;
+  if (hiveCardChart) hiveCardChart.destroy();
+  const pts = FinStore.get(MAN_KEYS.MAN).filter(r => r.kind === 'peso' && r.hiveId === hiveCardId).sort((a, b) => a.date.localeCompare(b.date));
+  Chart.defaults.color = '#94a3b8';
+  hiveCardChart = new Chart(cv, { type: 'line', data: { labels: pts.map(p => fmtDate(p.date)), datasets: [{ label: 'Peso (kg)', data: pts.map(p => p.pesoKg), borderColor: '#f59e0b', backgroundColor: 'rgba(245,158,11,0.2)', fill: true, tension: 0.3 }] }, options: { responsive: true, maintainAspectRatio: false } });
+}
+
+// ==========================================================================
+// 6. PLANEJAMENTO: PRECIFICAÇÃO, METAS, CAIXA, RECORRÊNCIA, DOCUMENTOS, CSV (v1.6.0)
+// ==========================================================================
+
+const REC_KEY = 'apisapp_recur';
+const DOC_KEY = 'apisapp_docs';
+const GOAL_KEY = 'apisapp_goals';
+let planMargin = 40;
+
+// Gera tarefas das regras recorrentes que venceram
+function runRecurringTasks() {
+  const t = todayISO();
+  const rules = FinStore.get(REC_KEY);
+  let changed = false;
+  rules.forEach(r => {
+    if (!r.nextDate || r.nextDate > t) return;
+    const exists = FinStore.get(MAN_KEYS.TASKS).some(k => !k.done && k.ruleId === r.id);
+    if (!exists) FinStore.save(MAN_KEYS.TASKS, { title: r.title, date: r.nextDate, hiveCode: r.hiveCode || '', done: false, ruleId: r.id }, 'task');
+    let d = new Date(r.nextDate + 'T12:00:00');
+    const step = Math.max(1, parseInt(r.everyDays, 10) || 30);
+    while (d.toISOString().split('T')[0] <= t) d.setDate(d.getDate() + step);
+    r.nextDate = d.toISOString().split('T')[0];
+    changed = true;
+  });
+  if (changed) FinStore.put(REC_KEY, rules);
+}
+
+function downloadCSV(name, rows) {
+  const csv = '\ufeff' + rows.map(r => r.map(c => '"' + String(c == null ? '' : c).replace(/"/g, '""') + '"').join(';')).join('\n');
+  const a = document.createElement('a');
+  a.href = URL.createObjectURL(new Blob([csv], { type: 'text/csv;charset=utf-8' }));
+  a.download = name + '_' + todayISO() + '.csv';
+  document.body.appendChild(a);
+  a.click();
+  a.remove();
+}
+
+function renderPlanView(data) {
+  const now = new Date();
+  const yr = String(now.getFullYear());
+  const t = todayISO();
+  const gastos = sumBy(data.expenses.filter(e => !e.investment && String(e.date).startsWith(yr)), e => e.value);
+  const melKg = sumBy(data.harvests.filter(h => h.product === 'Mel' && String(h.date).startsWith(yr)), h => parseFloat(h.quantityKg));
+  const custoKg = melKg > 0 ? gastos / melKg : 0;
+  const vend = data.sales.filter(s => s.kind !== 'perda' && String(s.date).startsWith(yr));
+  const kgV = sumBy(vend, saleKg), rec = sumBy(vend, saleTotal);
+  const medio = kgV > 0 ? rec / kgV : 0;
+  const sug = planMargin < 100 ? custoKg / (1 - planMargin / 100) : 0;
+  const goal = FinStore.get(GOAL_KEY).find(g => g.id === 'goal-' + yr) || { kg: 0, receita: 0 };
+  const bar = (v, max) => {
+    const p = max > 0 ? Math.min(100, Math.round(v / max * 100)) : 0;
+    return '<div style="background:var(--slate-700); border-radius:6px; height:10px; margin:0.3rem 0;"><div style="width:' + p + '%; background:var(--honey-400); height:10px; border-radius:6px;"></div></div><small>' + p + '%</small>';
+  };
+
+  // Projeção de caixa (próximos 3 meses)
+  const ym = t.slice(0, 7);
+  const months = [0, 1, 2].map(i => { const d = new Date(now.getFullYear(), now.getMonth() + i, 1); return d.getFullYear() + '-' + String(d.getMonth() + 1).padStart(2, '0'); });
+  let acc = 0;
+  const cashRows = months.map(m => {
+    const inflow = sumBy(data.sales.filter(s => s.kind !== 'perda' && !s.paid && ((s.dueDate || t).slice(0, 7) < ym ? ym : (s.dueDate || t).slice(0, 7)) === m), saleTotal);
+    const out = sumBy(data.expenses.filter(e => e.date > t && e.date.slice(0, 7) === m), e => e.value);
+    acc += inflow - out;
+    return '<tr><td>' + m + '</td><td>' + brl(inflow) + '</td><td>' + brl(out) + '</td><td style="color:' + (inflow - out >= 0 ? 'var(--emerald-500)' : 'var(--rose-500)') + ';">' + brl(inflow - out) + '</td><td><strong>' + brl(acc) + '</strong></td></tr>';
+  }).join('');
+
+  const pk = getPackages();
+  const rules = FinStore.get(REC_KEY);
+  const docs = FinStore.get(DOC_KEY).sort((a, b) => String(a.expires).localeCompare(String(b.expires)));
+  const btnS = 'padding:0.3rem 0.6rem; font-size:0.75rem;';
+  const box = 'background:rgba(15,23,42,0.6); padding:1rem; border-radius:12px; border:1px solid var(--slate-700);';
+
+  return `
+    <div class="glass-panel">
+      <div class="section-header">
+        <div>
+          <h2 class="section-title">🎯 Planejamento ${yr}</h2>
+          <p style="color:var(--slate-400); font-size:0.9rem;">Preço sugerido, metas da safra, projeção de caixa, tarefas recorrentes, documentos e exportação.</p>
+        </div>
+        <div style="display:flex; gap:0.5rem; flex-wrap:wrap;">
+          <button class="btn btn-secondary btn-csv" data-k="vendas">⬇️ CSV Vendas</button>
+          <button class="btn btn-secondary btn-csv" data-k="gastos">⬇️ CSV Gastos</button>
+          <button class="btn btn-secondary btn-csv" data-k="manejo">⬇️ CSV Manejo</button>
+        </div>
+      </div>
+
+      <div style="display:grid; grid-template-columns:repeat(auto-fit,minmax(320px,1fr)); gap:1.25rem;">
+        <div style="${box}">
+          <h4 style="color:var(--honey-400); margin-bottom:0.5rem;">💲 Precificação do mel</h4>
+          <div style="font-size:0.85rem; color:var(--slate-400);">Custo por kg (gastos do ano ÷ mel colhido): <strong style="color:#fff;">${brl(custoKg)}</strong> · Preço médio vendido: <strong style="color:#fff;">${brl(medio)}/kg</strong></div>
+          <div class="form-group" style="margin:0.6rem 0;"><label>Margem desejada (%):</label><input type="number" id="plan-margin" class="form-control" min="0" max="95" step="1" value="${planMargin}"></div>
+          ${custoKg > 0 ? '<table class="data-table"><thead><tr><th>Embalagem</th><th>Custo</th><th>Preço sugerido</th></tr></thead><tbody>' + pk.map(p => '<tr><td>' + esc(p.name) + '</td><td>' + brl(custoKg * p.kg) + '</td><td><strong>' + brl(sug * p.kg) + '</strong></td></tr>').join('') + '</tbody></table>' + (medio > 0 && medio < sug ? '<div style="color:var(--rose-500); font-size:0.8rem; margin-top:0.4rem;">⚠️ Seu preço médio está ' + brl(sug - medio) + '/kg abaixo do sugerido.</div>' : '') : '<div style="color:var(--slate-400);">Registre colheitas de mel e gastos no ano para calcular o custo por kg.</div>'}
+        </div>
+
+        <div style="${box}">
+          <h4 style="color:var(--honey-400); margin-bottom:0.5rem;">🏁 Metas da safra <button class="btn btn-secondary" id="btn-goal" style="${btnS} margin-left:0.5rem;">Definir</button></h4>
+          <div>Mel colhido: <strong>${melKg.toFixed(1)} kg</strong> / ${goal.kg || 0} kg</div>${bar(melKg, goal.kg)}
+          <div style="margin-top:0.6rem;">Receita: <strong>${brl(rec)}</strong> / ${brl(goal.receita || 0)}</div>${bar(rec, goal.receita)}
+        </div>
+
+        <div style="${box}">
+          <h4 style="color:var(--honey-400); margin-bottom:0.5rem;">💵 Projeção de caixa (3 meses)</h4>
+          <table class="data-table"><thead><tr><th>Mês</th><th>A receber</th><th>Parcelas</th><th>Saldo</th><th>Acum.</th></tr></thead><tbody>${cashRows}</tbody></table>
+          <small style="color:var(--slate-400);">Considera vendas a receber (vencidas entram no mês atual) e parcelas de gastos futuras.</small>
+        </div>
+      </div>
+
+      <h3 style="color:var(--honey-400); margin:1.5rem 0 0.5rem;">🔁 Tarefas recorrentes <button class="btn btn-primary" id="btn-new-rule" style="${btnS} margin-left:0.5rem;">+ Regra</button></h3>
+      ${rules.length === 0 ? '<div style="color:var(--slate-400);">Ex.: "Revisar apiário" a cada 15 dias; "Iniciar alimentação" a cada 365 dias.</div>' : rules.map(r => '<div style="display:flex; gap:0.6rem; align-items:center; padding:0.4rem 0.6rem; background:rgba(30,41,59,0.4); border-radius:8px; margin-bottom:0.4rem;"><span style="flex:1;">' + esc(r.title) + ' <small style="color:var(--slate-400);">a cada ' + r.everyDays + ' dias · próxima ' + fmtDate(r.nextDate) + '</small></span><button class="btn btn-danger btn-rule-del" data-id="' + r.id + '" style="' + btnS + '">🗑️</button></div>').join('')}
+
+      <h3 style="color:var(--honey-400); margin:1.5rem 0 0.5rem;">📄 Documentos e validades <button class="btn btn-primary" id="btn-new-doc" style="${btnS} margin-left:0.5rem;">+ Documento</button></h3>
+      ${docs.length === 0 ? '<div style="color:var(--slate-400);">Cadastre licenças, registros, laudos e certificados para ser avisado antes de vencerem.</div>' : docs.map(d => { const days = Math.floor((new Date(d.expires + 'T12:00:00') - now) / 864e5); return '<div style="display:flex; gap:0.6rem; align-items:center; padding:0.4rem 0.6rem; background:rgba(30,41,59,0.4); border-radius:8px; margin-bottom:0.4rem;"><span style="flex:1;">' + esc(d.name) + '</span><span class="status-badge ' + (days < 0 ? 'status-atencao' : days <= 30 ? 'status-atencao' : 'status-ativa') + '">' + (days < 0 ? 'Vencido' : days + ' dias') + ' · ' + fmtDate(d.expires) + '</span><button class="btn btn-danger btn-doc-del" data-id="' + d.id + '" style="' + btnS + '">🗑️</button></div>'; }).join('')}
+    </div>`;
+}
+
+function bindPlanEvents() {
+  const $ = id => document.getElementById(id);
+  $('plan-margin')?.addEventListener('change', e => { planMargin = Math.min(95, Math.max(0, parseFloat(e.target.value) || 0)); renderApp(); });
+  $('btn-goal')?.addEventListener('click', () => {
+    const kg = parseFloat(String(prompt('Meta de mel do ano (kg):') || '').replace(',', '.'));
+    const receita = parseFloat(String(prompt('Meta de receita do ano (R$):') || '').replace(',', '.'));
+    FinStore.save(GOAL_KEY, { id: 'goal-' + new Date().getFullYear(), kg: kg || 0, receita: receita || 0 }, 'goal');
+    renderApp();
+  });
+  $('btn-new-rule')?.addEventListener('click', () => {
+    const title = (prompt('Tarefa recorrente (ex.: Revisar apiário Sede):') || '').trim();
+    if (!title) return;
+    const everyDays = parseInt(prompt('Repetir a cada quantos dias?', '15'), 10);
+    const nextDate = (prompt('Primeira data (AAAA-MM-DD):', todayISO()) || '').trim();
+    if (!everyDays || !/^\d{4}-\d{2}-\d{2}$/.test(nextDate)) { alert('Dados inválidos.'); return; }
+    FinStore.save(REC_KEY, { title, everyDays, nextDate }, 'rec');
+    runRecurringTasks();
+    renderApp();
+  });
+  $('btn-new-doc')?.addEventListener('click', () => {
+    const name = (prompt('Documento (ex.: Licença sanitária, Laudo de mel):') || '').trim();
+    if (!name) return;
+    const expires = (prompt('Validade (AAAA-MM-DD):') || '').trim();
+    if (!/^\d{4}-\d{2}-\d{2}$/.test(expires)) { alert('Data inválida.'); return; }
+    FinStore.save(DOC_KEY, { name, expires }, 'doc');
+    renderApp();
+  });
+  document.querySelectorAll('.btn-rule-del').forEach(b => b.addEventListener('click', () => { FinStore.del(REC_KEY, b.dataset.id); renderApp(); }));
+  document.querySelectorAll('.btn-doc-del').forEach(b => b.addEventListener('click', () => { FinStore.del(DOC_KEY, b.dataset.id); renderApp(); }));
+  document.querySelectorAll('.btn-csv').forEach(b => b.addEventListener('click', () => {
+    const d = ApisStorage.getAll();
+    const k = b.dataset.k;
+    if (k === 'vendas') downloadCSV('vendas', [['Data', 'Tipo', 'Cliente/Motivo', 'Canal', 'Pagamento', 'Pago', 'Lote', 'Produto', 'Embalagem', 'Unidades', 'Preço unit.', 'Subtotal']]
+      .concat(d.sales.flatMap(s => s.items.map(i => [fmtDate(s.date), s.kind, s.customerName || s.reason || '', s.channel || '', s.payment || '', s.paid ? 'Sim' : 'Não', i.batchNumber, i.product, i.pkgName, i.units, String(i.unitPrice).replace('.', ','), String(i.units * i.unitPrice).replace('.', ',')]))));
+    if (k === 'gastos') downloadCSV('gastos', [['Data', 'Categoria', 'Descrição', 'Tipo', 'Investimento', 'Valor']]
+      .concat(d.expenses.map(e => [fmtDate(e.date), e.category, e.desc, e.type, e.investment ? 'Sim' : 'Não', String(e.value).replace('.', ',')])));
+    if (k === 'manejo') downloadCSV('manejo', [['Data', 'Tipo', 'Colmeia', 'Detalhes']]
+      .concat(FinStore.get(MAN_KEYS.MAN).map(r => [fmtDate(r.date), MAN_KINDS[r.kind], r.hiveCode, manDetail(r, []).replace(/<[^>]+>/g, ' ')])));
+  }));
+}
+
 function renderApp() {
   const mainContent = document.getElementById('main-view');
   if (!mainContent) return;
 
+  runRecurringTasks();
   const data = ApisStorage.getAll();
 
   switch (currentTab) {
+    case 'planejamento':
+      mainContent.innerHTML = renderPlanView(data);
+      bindPlanEvents();
+      break;
+
+    case 'hivecard':
+      mainContent.innerHTML = renderHiveCardView(data);
+      bindHiveCardEvents();
+      break;
+
+    case 'insumos':
+      mainContent.innerHTML = renderInsumosView(data);
+      bindInsumosEvents();
+      break;
+
+    case 'manejo':
+      mainContent.innerHTML = renderManejoView(data);
+      bindManejoEvents();
+      break;
+
+    case 'finance':
+      mainContent.innerHTML = renderFinanceView(data);
+      bindFinanceEvents();
+      break;
+
     case 'dashboard':
-      mainContent.innerHTML = renderDashboardView(data);
+      mainContent.innerHTML = buildAlertsHtml(data) + renderDashboardView(data);
       bindDashboardEvents(data);
+      refreshWeather();
       break;
 
     case 'apiaries':
@@ -654,7 +1667,7 @@ function renderApp() {
       break;
 
     default:
-      mainContent.innerHTML = renderDashboardView(data);
+      mainContent.innerHTML = buildAlertsHtml(data) + renderDashboardView(data);
       break;
   }
 }
@@ -995,8 +2008,9 @@ function renderDashboardView(data) {
     ? Math.round(data.hives.reduce((acc, curr) => acc + (parseInt(curr.healthScore) || 0), 0) / totalHives)
     : 0;
 
-  const tempSimulated = 26;
-  const windSimulated = 11;
+  const _w = getWeatherCache();
+  const tempSimulated = _w ? _w.temp : 26;
+  const windSimulated = _w ? _w.wind : 11;
   const flightCondition = (tempSimulated >= 20 && windSimulated < 20) 
     ? { label: 'Ótima para Voo & Revisão', color: 'var(--emerald-500)', icon: '☀️' }
     : { label: 'Cuidado (Vento/Frio)', color: 'var(--rose-500)', icon: '🌧️' };
@@ -1167,7 +2181,7 @@ function renderDashboardView(data) {
         <div class="stat-value" style="font-size:1.3rem; color:${flightCondition.color}; margin-top:0.4rem;">
           ${flightCondition.label}
         </div>
-        <div class="stat-sub">${tempSimulated}°C | Vento: ${windSimulated} km/h | Sol</div>
+        <div class="stat-sub">${tempSimulated}°C | Vento: ${windSimulated} km/h${_w ? ' | Chuva 7d: ' + _w.rain7 + ' mm' : ' | (sem dados reais: informe coordenadas do apiário)'}</div>
       </div>
     </div>
 
@@ -1756,6 +2770,7 @@ function renderHarvestView(data) {
                   </td>
                   <td>R$ ${parseFloat(harv.unitPriceBrl).toFixed(2)}</td>
                   <td>
+                    <button class="btn btn-secondary btn-edit-harvest" data-id="${harv.id}" style="padding:0.3rem 0.6rem; font-size:0.75rem;">✏️</button>
                     <button class="btn btn-danger btn-delete-harvest" data-id="${harv.id}" style="padding:0.3rem 0.6rem; font-size:0.75rem;">
                       🗑️
                     </button>
@@ -1771,6 +2786,13 @@ function renderHarvestView(data) {
 }
 
 function bindHarvestEvents(data) {
+  document.querySelectorAll('.btn-edit-harvest').forEach(btn => {
+    btn.addEventListener('click', () => {
+      const h = data.harvests.find(x => x.id === btn.getAttribute('data-id'));
+      if (h) openHarvestModal(data, h);
+    });
+  });
+
   document.getElementById('btn-new-harvest')?.addEventListener('click', () => {
     if (data.apiaries.length === 0) {
       alert('Por favor, cadastre primeiro pelo menos um apiário/núcleo para registrar uma colheita!');
@@ -1816,10 +2838,10 @@ function renderCalendarView() {
       </div>
 
       <div style="display:grid; grid-template-columns: repeat(auto-fit, minmax(280px, 1fr)); gap:1.25rem;">
-        ${months.map(m => `
-          <div style="background:rgba(15,23,42,0.6); border:1px solid var(--glass-border); padding:1.2rem; border-radius:var(--radius-lg);">
+        ${months.map((m, mi) => `
+          <div style="background:rgba(15,23,42,0.6); border:${mi === new Date().getMonth() ? '2px solid var(--honey-400)' : '1px solid var(--glass-border)'}; padding:1.2rem; border-radius:var(--radius-lg);">
             <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:0.5rem;">
-              <strong style="font-family:var(--font-heading); font-size:1.1rem; color:var(--honey-400);">${m.name}</strong>
+              <strong style="font-family:var(--font-heading); font-size:1.1rem; color:var(--honey-400);">${m.name}${mi === new Date().getMonth() ? ' • mês atual' : ''}</strong>
               <span class="tag-badge">${m.season}</span>
             </div>
             <div style="font-size:0.85rem; color:#fff; margin-bottom:0.5rem;">
@@ -2133,6 +3155,14 @@ function openHarvestModal(data = ApisStorage.getAll(), existingHarvest = null) {
       </div>
 
       <div class="form-group">
+        <label>Colmeia (opcional, para o ranking):</label>
+        <select id="harv-hiveId" class="form-control">
+          <option value="">Apiário todo / não informar</option>
+          ${(data.hives || []).map(x => `<option value="${x.id}" ${harv.hiveId === x.id ? 'selected' : ''}>${x.code} — ${x.name}</option>`).join('')}
+        </select>
+      </div>
+
+      <div class="form-group">
         <label>Florada / Origem Floral:</label>
         <input type="text" id="harv-floralSource" class="form-control" value="${harv.floralSource || ''}" placeholder="Ex.: Silvestre, Eucalipto, Cajueiro...">
       </div>
@@ -2179,6 +3209,7 @@ function openHarvestModal(data = ApisStorage.getAll(), existingHarvest = null) {
       id: isEdit ? harv.id : undefined,
       date: document.getElementById('harv-date').value,
       apiaryId: document.getElementById('harv-apiaryId').value,
+      hiveId: document.getElementById('harv-hiveId').value,
       product: document.getElementById('harv-product').value,
       quantityKg: quantity,
       floralSource: document.getElementById('harv-floralSource').value.trim(),
@@ -2803,10 +3834,10 @@ function oferecerRestauracaoNovoAparelho() {
     exibirTelaPrimeiroAcesso();
   });
 }
+
 // ==========================================================================
 // AUTOMATIZAÇÃO E SINCRONIZAÇÃO EM SEGUNDO PLANO (GOOGLE DRIVE)
 // ==========================================================================
-// Substitua o link abaixo pela URL gerada ao publicar o seu Google Apps Script (Passo do Web App)
 const GOOGLE_WEBAPP_URL = 'https://script.google.com/macros/s/AKfycbxxkU07G3dExu-2hFgQejDs_pIOe9XCYEBumnrnEnEYwd9XBAZ5JoKqzKoSUUgqVJvO/exec';
 
 const ApisDrive = {
