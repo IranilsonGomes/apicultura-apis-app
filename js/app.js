@@ -2,6 +2,7 @@
  * ApisApp Pro v1.0.5 - Código Unificado Standalone
  * Gestão de Apicultura (Apis mellifera)
  * Suporte a execução por duplo clique (file://) e por servidor local (http://)
+ * Compatível com múltiplos serviços de armazenamento gratuito na nuvem (Drive, OneDrive, MEGA, Dropbox, iCloud)
  */
 
 // ==========================================================================
@@ -19,10 +20,10 @@ const STORAGE_KEYS = {
   LAST_BACKUP_DATE: 'apisapp_last_backup_date',
   BACKUPS_HISTORY: 'apisapp_backups_history',
   QUEEN_COLORS: 'apisapp_queen_colors',
-  BOX_MODELS: 'apisapp_box_models' //
+  BOX_MODELS: 'apisapp_box_models'
 };
 
-// ID do cliente OAuth do Google (público). Necessário para o backup automático no Google Drive.
+// ⚠️ IMPORTANTÍSSIMO: Substitua a string abaixo pelo seu Client ID criado no Google Cloud Console.
 const GOOGLE_CLIENT_ID = 'COLE_AQUI_O_CLIENT_ID.apps.googleusercontent.com';
 
 const DEFAULT_QUEEN_COLOR_CODES = [
@@ -42,8 +43,7 @@ const EMPTY_DATA = {
 };
 
 const ApisStorage = {
- init() {
-    // Inicializa a estrutura básica com segurança sem apagar o cadastro do produtor
+  init() {
     if (!localStorage.getItem(STORAGE_KEYS.APIARIES)) {
       localStorage.setItem(STORAGE_KEYS.APIARIES, JSON.stringify([]));
       localStorage.setItem(STORAGE_KEYS.HIVES, JSON.stringify([]));
@@ -54,7 +54,6 @@ const ApisStorage = {
     if (!localStorage.getItem(STORAGE_KEYS.QUEEN_COLORS)) {
       localStorage.setItem(STORAGE_KEYS.QUEEN_COLORS, JSON.stringify(DEFAULT_QUEEN_COLOR_CODES));
     }
-    // Inicializa os modelos de caixas padrão caso não existam no localStorage
     if (!localStorage.getItem(STORAGE_KEYS.BOX_MODELS)) {
       const defaultModels = ['Langstroth', 'Schenck', 'Top Bar'];
       localStorage.setItem(STORAGE_KEYS.BOX_MODELS, JSON.stringify(defaultModels));
@@ -62,7 +61,7 @@ const ApisStorage = {
     this.checkAutoBackup();
   },
 
-getBoxModels() {
+  getBoxModels() {
     return JSON.parse(localStorage.getItem(STORAGE_KEYS.BOX_MODELS) || '[]');
   },
 
@@ -83,8 +82,6 @@ getBoxModels() {
     localStorage.setItem(STORAGE_KEYS.BOX_MODELS, JSON.stringify(list));
   },
 
-  // Renomeia um modelo e atualiza as colmeias que já usavam o nome antigo.
-  // Retorna: 'ok' | 'empty' | 'duplicate' | 'notfound'
   renameBoxModel(oldName, newName) {
     const trimmed = String(newName || '').trim();
     if (!trimmed) return 'empty';
@@ -119,7 +116,6 @@ getBoxModels() {
     const info = { nomeApicultor, apiarioPrincipal, dataCadastro: new Date().toISOString() };
     localStorage.setItem(STORAGE_KEYS.APICULTOR_INFO, JSON.stringify(info));
     
-    // Cadastra automaticamente o Apiário Principal como o primeiro "Núcleo" vinculado à sede inicial
     this.saveApiary({
       name: apiarioPrincipal + " - Sede",
       location: 'Sede Principal',
@@ -261,7 +257,6 @@ getBoxModels() {
     const jsonStr = JSON.stringify(data, null, 2);
 
     let file = new File([jsonStr], fileName, { type: 'application/json' });
-    // Alguns iPhones não aceitam compartilhar JSON; tenta como texto mantendo a extensão .json
     if (navigator.canShare && !navigator.canShare({ files: [file] })) {
       file = new File([jsonStr], fileName, { type: 'text/plain' });
     }
@@ -269,13 +264,14 @@ getBoxModels() {
     if (navigator.canShare && navigator.canShare({ files: [file] })) {
       try {
         await navigator.share({
-          title: `Backup ApisApp (${today})`,
+          title: `Backup ApisApp Pro (${today})`,
+          text: `Backup completo dos dados do ApisApp Pro gerado em ${today}. Salve no Google Drive, OneDrive, MEGA, Dropbox ou iCloud.`,
           files: [file]
         });
         return { success: true, method: 'share' };
       } catch (err) {
         if (err.name === 'AbortError') return { success: false, method: 'cancel' };
-        console.error("Erro ao compartilhar:", err);
+        console.error("Erro ao compartilhar arquivo de backup:", err);
       }
     }
 
@@ -461,14 +457,11 @@ let selectedStatusFilter = 'all';
 document.addEventListener('DOMContentLoaded', () => {
   ApisStorage.init();
   
-  // Verifica se é o primeiro acesso do cliente
   const infoApicultor = ApisStorage.getApicultorInfo();
   
   if (!infoApicultor) {
-    // Aparelho novo: oferece restaurar o backup salvo no Drive antes do cadastro
     oferecerRestauracaoNovoAparelho();
   } else {
-    // Se já cadastrado anteriormente, inicia o sistema normalmente
     IniciarAplicativoNormal();
   }
 });
@@ -485,7 +478,7 @@ function IniciarAplicativoNormal() {
 function exibirTelaPrimeiroAcesso() {
   document.body.innerHTML = `
     <div style="background:#0f172a; color:#fff; min-height:100vh; display:flex; align-items:center; justify-content:center; font-family:sans-serif; padding:1.5rem; box-sizing:border-box;">
-      <div style="background:rgba(30,41,59,0.7); border:1px solid #334155; padding:2.5rem; border-radius:16px; max-width:500px; w_idth:100%; box-shadow:0 10px 25px rgba(0,0,0,0.5); backdrop-filter:blur(10px);">
+      <div style="background:rgba(30,41,59,0.7); border:1px solid #334155; padding:2.5rem; border-radius:16px; max-width:500px; width:100%; box-shadow:0 10px 25px rgba(0,0,0,0.5); backdrop-filter:blur(10px);">
         <div style="text-align:center; margin-bottom:2rem;">
           <span style="font-size:3.5rem;">🐝</span>
           <h1 style="font-size:1.8rem; color:#facc15; margin-top:0.5rem;">Bem-vindo ao ApisApp Pro</h1>
@@ -511,7 +504,6 @@ function exibirTelaPrimeiroAcesso() {
     </div>
   `;
 
-  // Processa o envio do formulário de entrada
   document.getElementById('form-primeiro-acesso').addEventListener('submit', (e) => {
     e.preventDefault();
     const nome = document.getElementById('init-nome-apicultor').value.trim();
@@ -520,8 +512,6 @@ function exibirTelaPrimeiroAcesso() {
     if (nome && apiario) {
       ApisStorage.saveApicultorInfo(nome, apiario);
       alert('Configuração inicial salva com sucesso! Bem-vindo.');
-      
-      // Força a recarga limpa do aplicativo já liberado
       window.location.reload();
     }
   });
@@ -599,7 +589,7 @@ function setupEventListeners() {
 
 function setupNetworkListeners() {
   window.addEventListener('online', () => {
-    ApisDrive.autoSync();
+    ApisDrive.autoSync(true);
     ApisStorage.checkAutoBackup();
     checkAutoBackupBanner();
   });
@@ -670,7 +660,7 @@ function renderApp() {
 }
 
 /* ==========================================================================
-   QUEENS & COLORS VIEW (Gestão & Edição de Rainhas e Cores)
+   QUEENS & COLORS VIEW
    ========================================================================== */
 function renderQueensView(data) {
   const colorCodes = ApisStorage.getQueenColorCodes();
@@ -1011,7 +1001,6 @@ function renderDashboardView(data) {
     ? { label: 'Ótima para Voo & Revisão', color: 'var(--emerald-500)', icon: '☀️' }
     : { label: 'Cuidado (Vento/Frio)', color: 'var(--rose-500)', icon: '🌧️' };
 
-  // --- CONSTRUÇÃO DO CONSOLIDADO POR NÚCLEO COM OPÇÃO DE DETALHAMENTO ---
   let nucleiConsolidatedHtml = '';
   
   if (data.apiaries.length === 0) {
@@ -1025,16 +1014,13 @@ function renderDashboardView(data) {
       const ap = data.apiaries[i];
       const hivesInAp = data.hives.filter(h => h.apiaryId === ap.id);
       
-      // Totais somados do Núcleo
       const boxCount = hivesInAp.length;
       const supersSum = hivesInAp.reduce((acc, h) => acc + (parseInt(h.supersCount) || 0), 0);
       const collectorsSum = hivesInAp.reduce((acc, h) => acc + (parseInt(h.propolisCollectors) || 0), 0);
 
-      // Validação das coordenadas (verifica se existem números válidos separados por vírgula)
       const locStr = (ap.location || '').trim();
       const hasCoordinates = locStr && /^[-+]?([1-8]?\d(\.\d+)?|90(\.0+)?),\s*[-+]?(180(\.0+)?|((1[0-7]\d)|([1-9]?\d))(\.\d+)?)$/.test(locStr);
 
-      // Botão do mapa: Só gera o HTML se possuir as coordenadas corretas no cadastro
       const mapButtonHtml = hasCoordinates 
         ? `<div style="display:flex; gap:0.4rem; flex-wrap:wrap;">
              <button type="button" class="btn btn-secondary btn-view-dashboard-map" data-coords="${locStr}" data-name="${ap.name}" style="padding:0.4rem 0.6rem; font-size:0.8rem; background:rgba(59,130,246,0.15); color:#60a5fa; border:1px solid rgba(59,130,246,0.3);">🗺️ Ver no Mapa</button>
@@ -1042,7 +1028,6 @@ function renderDashboardView(data) {
            </div>`
         : '';
 
-      // Linhas de detalhamento individual de cada caixa (escondidas por padrão)
       let detailedRowsHtml = '';
       if (boxCount === 0) {
         detailedRowsHtml = `
@@ -1086,7 +1071,6 @@ function renderDashboardView(data) {
               </div>
             </div>
             
-            <!-- Indicadores Consolidados do Núcleo -->
             <div style="display:flex; gap:1.25rem; background:rgba(15,23,42,0.5); padding:0.5rem 1rem; border-radius:8px; border:1px solid rgba(255,255,255,0.05);">
               <div style="text-align:center;">
                 <div style="font-size:0.7rem; color:var(--slate-400); text-transform:uppercase;">Caixas</div>
@@ -1107,7 +1091,6 @@ function renderDashboardView(data) {
             </button>
           </div>
 
-          <!-- Tabela Expandível Oculta com Detalhamento por Caixa -->
           <div id="details-${ap.id}" class="table-responsive" style="display:none; margin-top:1.25rem; border-top:1px dashed var(--slate-600); padding-top:0.75rem;">
             <table class="data-table" style="margin:0;">
               <thead>
@@ -1137,7 +1120,7 @@ function renderDashboardView(data) {
         <div class="hero-tags">
           <span class="tag-badge">🐝 Abelhas Apis</span>
           <span class="tag-badge">👑 Gestão & Cores de Rainhas</span>
-          <span class="tag-badge">☁️ Backup Diário no Drive</span>
+          <span class="tag-badge">☁️ Backup NATIVO na Nuvem (Drive, OneDrive, MEGA, iCloud)</span>
           <span class="tag-badge">📊 Saúde do Apiário: ${avgHealth}%</span>
         </div>
       </div>
@@ -1201,7 +1184,6 @@ function renderDashboardView(data) {
           </div>
         </div>
         
-        <!-- Container dos Núcleos Consolidados Expandíveis -->
         <div id="dashboard-nuclei-container">
           ${nucleiConsolidatedHtml}
         </div>
@@ -1218,9 +1200,9 @@ function renderDashboardView(data) {
           </div>
 
           <div style="background:rgba(16,185,129,0.1); border-left:4px solid var(--emerald-500); padding:0.85rem; border-radius:8px;">
-            <strong style="color:var(--emerald-500); font-size:0.85rem;">☁️ BACKUP AUTOMÁTICO NO DRIVE</strong>
+            <strong style="color:var(--emerald-500); font-size:0.85rem;">☁️ BACKUP EM QUALQUER NUVEM</strong>
             <p style="font-size:0.8rem; color:var(--slate-200); margin-top:0.25rem;">
-              O sistema salva automaticamente seus dados todos os dias. Ao fique online, envie para seu Google Drive com 1 toque.
+              Envie ou guarde facilmente seus backups no <strong>Google Drive, OneDrive, MEGA, Dropbox ou iCloud</strong> diretamente no seu celular ou computador.
             </p>
           </div>
         </div>
@@ -1228,7 +1210,6 @@ function renderDashboardView(data) {
     </div>
   `;
 }
-
 
 function bindDashboardEvents(data) {
   document.getElementById('btn-quick-apiary')?.addEventListener('click', () => {
@@ -1244,7 +1225,6 @@ function bindDashboardEvents(data) {
     }
   });
 
-  // Listener dinâmico para abrir e fechar o detalhamento por núcleo
   document.querySelectorAll('.btn-toggle-details').forEach(btn => {
     btn.addEventListener('click', () => {
       const targetId = btn.getAttribute('data-target');
@@ -1264,7 +1244,6 @@ function bindDashboardEvents(data) {
     });
   });
 
-  // ---- CONSERTO DO CLIQUE EM "VER NO MAPA" ----
   document.querySelectorAll('.btn-view-dashboard-map').forEach(btn => {
     btn.addEventListener('click', () => {
       const coords = btn.getAttribute('data-coords');
@@ -1275,7 +1254,6 @@ function bindDashboardEvents(data) {
           <p style="color: var(--slate-300); font-size: 0.9rem; margin-bottom: 1rem;">
             Exibindo localização geográfica registrada para: <strong style="color: var(--honey-400);">${name}</strong> 
           </p>
-          <!-- É aqui dentro que o mapa vai aparecer -->
           <div id="apiary-map-container" style="width: 100%; height: auto; border-radius: 8px; overflow: hidden; border: 1px solid var(--slate-600); background: #0f172a;">
             <div style="padding: 2rem; text-align: center; color: var(--slate-400); font-size: 0.9rem;">
               Sintonizando satélites...
@@ -1284,17 +1262,14 @@ function bindDashboardEvents(data) {
         </div>
       `;
       
-      // 1. Abre a estrutura da janela modal na tela primeiro
       openModal(`🗺️ Mapa do Núcleo: ${name}`, mapModalContent);
       
-      // 2. Aguarda a janela existir fisicamente na tela para injetar o mapa com segurança
       setTimeout(() => {
         renderDynamicMapForCoords(coords, name);
       }, 100);
     });
   });
 
-  // Botão "Ver rotas": abre diretamente o Google Maps com o destino do núcleo.
   document.querySelectorAll('.btn-route-dashboard-map').forEach(btn => {
     btn.addEventListener('click', () => {
       const coords = String(btn.getAttribute('data-coords') || '').split(',').map(v => v.trim());
@@ -1318,7 +1293,6 @@ function renderDynamicMapForCoords(coordsStr, locationName) {
   const container = document.getElementById('apiary-map-container');
   if (!container) return;
 
-  // Aceita coordenadas no formato: latitude, longitude
   const parts = String(coordsStr || '').split(',').map(c => c.trim());
   const lat = parseFloat(parts[0]);
   const lng = parseFloat(parts[1]);
@@ -1339,17 +1313,9 @@ function renderDynamicMapForCoords(coordsStr, locationName) {
   }
 
   const coordinateText = `${lat.toFixed(6)}, ${lng.toFixed(6)}`;
+  const googleMapsUrl = `https://www.google.com/maps/search/?api=1&query=${encodeURIComponent(lat + ',' + lng)}`;
+  const googleDirectionsUrl = `https://www.google.com/maps/dir/?api=1&destination=${encodeURIComponent(lat + ',' + lng)}&travelmode=driving`;
 
-  // Google Maps: visualização direta da localização.
-  const googleMapsUrl =
-    `https://www.google.com/maps/search/?api=1&query=${encodeURIComponent(lat + ',' + lng)}`;
-
-  // Google Maps: abre a tela de navegação/rotas até o apiário.
-  // No celular, o sistema pode oferecer/abrir o aplicativo Google Maps.
-  const googleDirectionsUrl =
-    `https://www.google.com/maps/dir/?api=1&destination=${encodeURIComponent(lat + ',' + lng)}&travelmode=driving`;
-
-  // OpenStreetMap para exibição do mapa dentro do aplicativo.
   const delta = 0.005;
   const west = lng - delta;
   const south = lat - delta;
@@ -1412,8 +1378,6 @@ function renderDynamicMapForCoords(coordsStr, locationName) {
     </div>
   `;
 
-  // Usa a própria ação do usuário para abrir o Google Maps,
-  // evitando bloqueios de popup em navegadores.
   const btnMapa = document.getElementById('btn-mapa-abrir-app');
   const btnRota = document.getElementById('btn-mapa-gerar-rota');
 
@@ -1429,7 +1393,6 @@ function renderDynamicMapForCoords(coordsStr, locationName) {
     });
   }
 }
-
 
 function renderApiariesView(data) {
   const infoApicultor = ApisStorage.getApicultorInfo() || { nomeApicultor: 'Apicultor', apiarioPrincipal: 'Geral' };
@@ -1476,7 +1439,6 @@ function renderApiariesView(data) {
       const apiary = data.apiaries.find(a => a.id === hive.apiaryId);
       const queenColor = getQueenColorForYear(hive.queen?.year || new Date().getFullYear());
       
-      // Monta o indicador de própolis
       const propolisStatusHtml = hive.propolisProducer 
         ? `<span class="tag-badge" style="background:rgba(16,185,129,0.15); color:var(--emerald-400); font-weight:600;">🌿 Própolis: ${hive.propolisCollectors || 0} col.</span>`
         : `<span class="tag-badge" style="background:rgba(148,163,184,0.1); color:var(--slate-400);">Mel/Subsistência</span>`;
@@ -1632,7 +1594,6 @@ function renderInspectionsView(data) {
 }
 
 function bindInspectionsEvents(data) {
-  // Corrigido para mapear o ID correto do botão da interface (btn-new-inspection)
   document.getElementById('btn-new-inspection')?.addEventListener('click', () => {
     if (data.hives.length === 0) {
       alert('Cadastre primeiro uma colmeia para registrar uma inspeção!');
@@ -1720,7 +1681,6 @@ function bindApiariesEvents(data) {
     });
   });
 }
-
 
 function renderHarvestView(data) {
   const totalValue = data.harvests.reduce((acc, h) => {
@@ -1811,7 +1771,6 @@ function renderHarvestView(data) {
 }
 
 function bindHarvestEvents(data) {
-  // Corrigido para associar a ação ao botão correto de nova colheita (btn-new-harvest)
   document.getElementById('btn-new-harvest')?.addEventListener('click', () => {
     if (data.apiaries.length === 0) {
       alert('Por favor, cadastre primeiro pelo menos um apiário/núcleo para registrar uma colheita!');
@@ -1876,16 +1835,12 @@ function renderCalendarView() {
   `;
 }
 
-
-
-
 function renderAnalyticsView(data) {
   const totalHoney = data.harvests.filter(h => h.product === 'Mel').reduce((acc, curr) => acc + (parseFloat(curr.quantityKg) || 0), 0);
   const totalPropolis = data.harvests.filter(h => h.product.includes('Própolis')).reduce((acc, curr) => acc + (parseFloat(curr.quantityKg) || 0), 0);
   
   const colorCodes = ApisStorage.getQueenColorCodes();
   
-  // Monta as linhas de forma 100% segura usando concatenação clássica
   let queenRowsHtml = '';
   for (let i = 0; i < colorCodes.length; i++) {
     const qc = colorCodes[i];
@@ -2009,10 +1964,6 @@ function openModal(title, contentHtml) {
 }
 
 // ==========================================================================
-// FORMULÁRIOS DE CADASTRO DE APIÁRIOS E COLMEIAS (CORRIGIDOS DE VERDADE)
-// ==========================================================================
-
-// ==========================================================================
 // FORMULÁRIO DE INSPEÇÃO DE CAMPO
 // ==========================================================================
 function openInspectionModal(data = ApisStorage.getAll(), existingInspection = null) {
@@ -2132,8 +2083,6 @@ function openInspectionModal(data = ApisStorage.getAll(), existingInspection = n
     renderApp();
   });
 }
-
-
 
 // ==========================================================================
 // FORMULÁRIO DE COLHEITA
@@ -2280,10 +2229,9 @@ function openApiaryModal(existingApiary = null) {
     </form>
   `;
 
-  openModal(isEdit ? `✏️ Editar Núcleo: ${ap.name}` : '🏞️ Cadastrar Novo Núcleo de Production', html);
+  openModal(isEdit ? `✏️ Editar Núcleo: ${ap.name}` : '🏞️ Cadastrar Novo Núcleo de Produção', html);
   document.getElementById('btn-cancelar-apiary')?.addEventListener('click', closeModal);
 
-  // --- LÓGICA DE CAPTURA DO GPS OFFLINE NATIVO ---
   document.getElementById('btn-capture-gps')?.addEventListener('click', () => {
     const statusText = document.getElementById('gps-status');
     const locationInput = document.getElementById('ap-location');
@@ -2301,11 +2249,10 @@ function openApiaryModal(existingApiary = null) {
       statusText.style.color = "var(--honey-400)";
     }
 
-    // Configurações ideais para capturar apenas o hardware do GPS nativo de forma precisa
     const gpsOptions = {
-      enableHighAccuracy: true, // Força o uso do hardware GPS integrado (altamente eficaz em campo/offline)
-      timeout: 10000,           // Aguarda até 10 segundos pelo sinal dos satélites
-      maximumAge: 0             // Não aceita posições antigas em cache
+      enableHighAccuracy: true,
+      timeout: 10000,
+      maximumAge: 0
     };
 
     navigator.geolocation.getCurrentPosition(
@@ -2346,7 +2293,6 @@ function openApiaryModal(existingApiary = null) {
     );
   });
 
-  // --- EVENTO DE ENVIO DO FORMULÁRIO ---
   document.getElementById('form-add-apiary').addEventListener('submit', (e) => {
     e.preventDefault();
     const apiaryData = {
@@ -2367,7 +2313,6 @@ function openHiveModal(data = ApisStorage.getAll(), existingHive = null, draft =
   const h = draft || existingHive || {};
   const currentYear = new Date().getFullYear();
 
-  // Carrega os modelos de caixas do banco dinâmico
   const boxModels = ApisStorage.getBoxModels();
 
   let apiaryOptions = '';
@@ -2379,7 +2324,6 @@ function openHiveModal(data = ApisStorage.getAll(), existingHive = null, draft =
     }
   }
 
-  // Monta as opções do select dinamicamente
   const modelOptions = (boxModels.length === 0 ? '<option value="">Nenhum modelo cadastrado</option>' : '') + boxModels.map(model => {
     const selected = h.type === model ? 'selected' : '';
     return `<option value="${model}" ${selected}>${model}</option>`;
@@ -2468,7 +2412,6 @@ function openHiveModal(data = ApisStorage.getAll(), existingHive = null, draft =
 
   document.getElementById('btn-cancelar-colmeia').addEventListener('click', closeModal);
   
-  // Gatilho para abrir a janela secundária buscando de forma segura do escopo global
   document.getElementById('btn-manage-models').addEventListener('click', () => {
     const val = (id) => document.getElementById(id)?.value;
     const num = (id) => { const n = parseInt(val(id), 10); return Number.isFinite(n) ? n : undefined; };
@@ -2528,7 +2471,6 @@ function openHiveModal(data = ApisStorage.getAll(), existingHive = null, draft =
   });
 }
 
-// Injeta diretamente a função no objeto global Window para que fique acessível em qualquer ponto do script
 window.openManageModelsModal = function(appData, currentHive = null, formDraft = null, editingIndex = -1) {
   const models = ApisStorage.getBoxModels();
   const esc = (t) => String(t).replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;');
@@ -2577,7 +2519,6 @@ window.openManageModelsModal = function(appData, currentHive = null, formDraft =
 
   openModal('🛠️ Gerenciar Modelos de Caixas', html);
 
-  // ---- Incluir ----
   const addModel = () => {
     const input = document.getElementById('new-model-name');
     if (!input || !input.value.trim()) return;
@@ -2588,7 +2529,7 @@ window.openManageModelsModal = function(appData, currentHive = null, formDraft =
       return;
     }
     if (ApisStorage.saveBoxModel(name)) {
-      if (formDraft) formDraft.type = name; // já deixa o novo modelo selecionado no cadastro
+      if (formDraft) formDraft.type = name;
       reopen();
     } else {
       alert('Formato inválido.');
@@ -2599,7 +2540,6 @@ window.openManageModelsModal = function(appData, currentHive = null, formDraft =
     if (e.key === 'Enter') { e.preventDefault(); addModel(); }
   });
 
-  // ---- Editar ----
   document.querySelectorAll('.btn-edit-model').forEach(btn => {
     btn.addEventListener('click', () => reopen(parseInt(btn.getAttribute('data-index'), 10)));
   });
@@ -2632,7 +2572,6 @@ window.openManageModelsModal = function(appData, currentHive = null, formDraft =
   });
   document.getElementById('edit-model-input')?.focus();
 
-  // ---- Excluir ----
   document.querySelectorAll('.btn-delete-model').forEach(btn => {
     btn.addEventListener('click', () => {
       const modelToDelete = models[parseInt(btn.getAttribute('data-index'), 10)];
@@ -2648,14 +2587,13 @@ window.openManageModelsModal = function(appData, currentHive = null, formDraft =
     });
   });
 
-  // ---- Voltar ao cadastro (mantém o que foi digitado) ----
   document.getElementById('btn-close-models').addEventListener('click', () => {
     openHiveModal(ApisStorage.getAll(), currentHive, formDraft);
   });
 };
 
 // ==========================================================================
-// BACKUP NA NUVEM (Google Drive / iCloud) via tela de compartilhar do celular
+// BACKUP MULTI-NUVEM & GOOGLE DRIVE AUTO SYNC
 // ==========================================================================
 
 function escolherArquivoBackup(onDone) {
@@ -2681,77 +2619,156 @@ function openBackupModal() {
   const html = `
     <div style="display:flex; flex-direction:column; gap:1rem;">
       <p style="font-size:0.85rem; color:var(--slate-200);">
-        Guarde uma cópia dos seus dados no <strong>Google Drive</strong> (Android) ou no <strong>Drive/iCloud</strong> (iPhone).
-        Se trocar ou perder o celular, basta restaurar o arquivo no aparelho novo.
+        Guarde e restaure o seu projeto no serviço de armazenamento na nuvem: 
+        <strong>Google Drive, OneDrive, MEGA, Dropbox ou iCloud</strong>.
       </p>
+
+      <!-- SEÇÃO 1: COMPARTILHAMENTO UNIVERSAL -->
+      <div style="background:rgba(30,41,59,0.7); border:1px solid var(--slate-700); padding:1rem; border-radius:10px;">
+        <strong style="color:var(--honey-400); font-size:0.9rem;">☁️ Salvar em Qualquer Nuvem</strong>
+        <p style="font-size:0.8rem; color:var(--slate-300); margin:0.4rem 0 0.8rem 0;">
+          Abre as opções do seu celular/computador para enviar manualmente para qualquer aplicativo.
+        </p>
+        <button class="btn btn-primary" id="btn-backup-send-universal" style="width:100%; justify-content:center;">
+          📤 Enviar / Compartilhar Backup
+        </button>
+      </div>
+
+      <!-- SEÇÃO 2: RESTAURAÇÃO DE BACKUPS DO DRIVE OU ARQUIVO LOCAL -->
+      <div style="background:rgba(30,41,59,0.7); border:1px solid var(--slate-700); padding:1rem; border-radius:10px;">
+        <strong style="color:#60a5fa; font-size:0.9rem;">📥 Restaurar Dados</strong>
+        <p style="font-size:0.8rem; color:var(--slate-300); margin:0.4rem 0 0.8rem 0;">
+          Escolha um backup salvo na pasta do seu Google Drive ou um arquivo <code>.json</code> baixado.
+        </p>
+        <div style="display:flex; flex-direction:column; gap:0.5rem;">
+          <button class="btn btn-primary" id="btn-list-drive-backups" style="width:100%; justify-content:center; background:#2563eb;">
+            🔍 Ver Backups Disponíveis no Google Drive
+          </button>
+          <button class="btn btn-secondary" id="btn-backup-restore-universal" style="width:100%; justify-content:center;">
+            📂 Escolher Arquivo Local (.json)
+          </button>
+        </div>
+      </div>
+
+      <!-- SEÇÃO 3: AUTO-SYNC DIÁRIO AUTOMÁTICO -->
       <div style="background:rgba(16,185,129,0.1); border-left:4px solid var(--emerald-500); padding:0.85rem; border-radius:8px;">
-        <strong style="color:var(--emerald-500); font-size:0.85rem;">🔄 BACKUP AUTOMÁTICO NO GOOGLE DRIVE</strong>
+        <strong style="color:var(--emerald-500); font-size:0.85rem;">🔄 AUTO-SYNC DIÁRIO (1X POR DIA)</strong>
         <p style="font-size:0.8rem; color:var(--slate-200); margin:0.35rem 0;" id="drive-status-text">${ApisDrive.statusText()}</p>
         ${ApisDrive.isConnected()
-          ? `<div style="display:flex; gap:0.5rem; flex-wrap:wrap;">
-               <button class="btn btn-primary" id="btn-drive-sync-now">Enviar agora</button>
-               <button class="btn btn-secondary" id="btn-drive-restore">Restaurar do Google Drive</button>
-               <button class="btn btn-secondary" id="btn-drive-disconnect">Desligar</button>
+          ? `<div style="display:flex; gap:0.5rem; flex-wrap:wrap; margin-top:0.5rem;">
+               <button class="btn btn-primary" id="btn-drive-sync-now">Enviar Agora</button>
+               <button class="btn btn-secondary" id="btn-drive-disconnect">Desligar Auto-Sync</button>
              </div>`
-          : `<button class="btn btn-primary" id="btn-drive-connect">Ligar com minha conta Google</button>`}
+          : `<button class="btn btn-primary" id="btn-drive-connect" style="margin-top:0.5rem; width:100%;">Ligar Backup Diário Automático</button>`}
       </div>
-      <p style="font-size:0.8rem; color:var(--slate-400); margin:0;">Ou envie manualmente (Drive ou iCloud):</p>
-      <button class="btn btn-secondary" id="btn-backup-send">☁️ Enviar arquivo de backup</button>
-      <p style="font-size:0.75rem; color:var(--slate-400); margin-top:-0.5rem;">
-        Na tela que abrir, escolha <strong>Drive</strong> (ou "Salvar em Arquivos" → iCloud/Drive no iPhone).
-      </p>
-      <button class="btn btn-secondary" id="btn-backup-restore">📥 Restaurar backup do Drive</button>
-      <p style="font-size:0.75rem; color:var(--slate-400); margin-top:-0.5rem;">
-        Abre seus arquivos; toque em <strong>Drive</strong> e escolha o arquivo <em>ApisApp_Backup_....json</em>.
-        Os dados atuais deste aparelho serão substituídos.
-      </p>
-      <p style="font-size:0.75rem; color:var(--slate-400);">Último backup local: ${ultimo}</p>
+
+      <p style="font-size:0.75rem; color:var(--slate-400); margin:0; text-align:center;">Último backup local gerado: ${ultimo}</p>
     </div>`;
-  openModal('☁️ Backup na Nuvem', html);
+    
+  openModal('☁️ Backup & Restauração na Nuvem', html);
 
-  document.getElementById('btn-drive-connect')?.addEventListener('click', async () => {
-    try {
-      await ApisDrive.connect();
-      const existe = await ApisDrive.findFile();
-      if (existe && confirm('Encontramos um backup no seu Google Drive. Deseja restaurá-lo agora? (Cancelar = manter os dados deste aparelho e enviar por cima)')) {
-        await ApisDrive.restore();
-        alert('Backup restaurado do Google Drive!');
-        return location.reload();
-      }
-      await ApisDrive.upload(true);
-      alert('Backup automático ligado! Seus dados serão enviados ao Google Drive sozinhos.');
-      openBackupModal();
-    } catch (e) { alert('Não foi possível ligar o Google Drive: ' + e.message); }
-  });
-  document.getElementById('btn-drive-sync-now')?.addEventListener('click', async () => {
-    try { await ApisDrive.ensureToken(true); await ApisDrive.upload(true); alert('Backup enviado ao Google Drive!'); openBackupModal(); }
-    catch (e) { alert('Falha ao enviar: ' + e.message); }
-  });
-  document.getElementById('btn-drive-restore')?.addEventListener('click', async () => {
-    if (!confirm('Restaurar o backup do Google Drive vai substituir os dados deste aparelho. Continuar?')) return;
-    try { await ApisDrive.ensureToken(true); await ApisDrive.restore(); alert('Backup restaurado!'); location.reload(); }
-    catch (e) { alert('Falha ao restaurar: ' + e.message); }
-  });
-  document.getElementById('btn-drive-disconnect')?.addEventListener('click', () => {
-    ApisDrive.disconnect(); openBackupModal();
-  });
-
-  document.getElementById('btn-backup-send')?.addEventListener('click', async () => {
+  document.getElementById('btn-backup-send-universal')?.addEventListener('click', async () => {
     const r = await ApisStorage.shareToDriveOrEmail();
     if (r.method === 'download') {
-      alert('Seu aparelho não abriu a tela de compartilhar. O arquivo foi baixado: abra o app do Drive e envie-o manualmente.');
+      alert('O arquivo de backup foi baixado. Salve-o no seu serviço de nuvem preferido.');
     }
   });
-  document.getElementById('btn-backup-restore')?.addEventListener('click', () => {
-    if (!confirm('Restaurar o backup vai substituir os dados deste aparelho. Continuar?')) return;
+
+  document.getElementById('btn-backup-restore-universal')?.addEventListener('click', () => {
+    if (!confirm('Restaurar o backup vai substituir os dados atuais deste dispositivo. Deseja continuar?')) return;
     escolherArquivoBackup((ok) => {
       if (ok) {
         alert('Backup restaurado com sucesso!');
         location.reload();
       } else {
-        alert('Arquivo inválido. Escolha um arquivo ApisApp_Backup_....json.');
+        alert('Arquivo inválido. Escolha um arquivo válido no formato ApisApp_Backup_....json.');
       }
     });
+  });
+
+  // NOVO: Visualizar os arquivos do Google Drive e selecionar qual restaurar
+  document.getElementById('btn-list-drive-backups')?.addEventListener('click', async () => {
+    const btn = document.getElementById('btn-list-drive-backups');
+    btn.innerText = '⏳ Carregando backups do Google Drive...';
+    btn.disabled = true;
+
+    try {
+      const files = await ApisDrive.listBackups();
+      if (files.length === 0) {
+        alert('Nenhum backup foi encontrado na pasta do seu apiário no Google Drive.');
+        openBackupModal();
+        return;
+      }
+
+      let optionsHtml = files.map(f => {
+        const dataFormatada = new Date(f.date).toLocaleString('pt-BR');
+        return `
+          <div style="display:flex; justify-content:space-between; align-items:center; background:rgba(15,23,42,0.8); border:1px solid var(--slate-700); padding:0.75rem; border-radius:8px;">
+            <div>
+              <strong style="color:var(--honey-400); font-size:0.85rem;">📄 ${f.name}</strong>
+              <div style="font-size:0.75rem; color:var(--slate-400);">Criado em: ${dataFormatada}</div>
+            </div>
+            <button class="btn btn-primary btn-restore-file" data-id="${f.id}" style="padding:0.4rem 0.75rem; font-size:0.8rem;">
+              Restaurar
+            </button>
+          </div>`;
+      }).join('');
+
+      openModal('📥 Selecione o Backup para Restaurar', `
+        <div style="display:flex; flex-direction:column; gap:0.75rem;">
+          <p style="font-size:0.85rem; color:var(--slate-300);">Estes são os backups armazenados na pasta do seu apiário no Google Drive:</p>
+          ${optionsHtml}
+          <button class="btn btn-secondary" onclick="openBackupModal()" style="margin-top:0.5rem;">Voltar</button>
+        </div>
+      `);
+
+      document.querySelectorAll('.btn-restore-file').forEach(b => {
+        b.addEventListener('click', async () => {
+          const id = b.getAttribute('data-id');
+          if (confirm('Restaurar este arquivo irá substituir todos os dados atuais do aplicativo. Confirmar?')) {
+            b.innerText = 'Restaurando...';
+            b.disabled = true;
+            try {
+              await ApisDrive.restoreFromDrive(id);
+              alert('Backup restaurado com sucesso do Google Drive!');
+              location.reload();
+            } catch (err) {
+              alert('Erro ao restaurar: ' + err.message);
+              openBackupModal();
+            }
+          }
+        });
+      });
+
+    } catch (e) {
+      alert('Erro ao buscar backups: ' + e.message);
+      openBackupModal();
+    }
+  });
+
+  document.getElementById('btn-drive-connect')?.addEventListener('click', async () => {
+    try {
+      await ApisDrive.connect();
+      alert('Sincronização diária ativada! O sistema enviará 1 backup automático por dia quando estiver online.');
+      openBackupModal();
+    } catch (e) {
+      alert('Erro ao conectar: ' + e.message);
+    }
+  });
+
+  document.getElementById('btn-drive-sync-now')?.addEventListener('click', async () => {
+    try { 
+      await ApisDrive.upload(true); 
+      alert('Backup de hoje enviado com sucesso para o Google Drive!'); 
+      openBackupModal(); 
+    } catch (e) { 
+      alert('Falha ao enviar: ' + e.message); 
+    }
+  });
+
+  document.getElementById('btn-drive-disconnect')?.addEventListener('click', () => {
+    ApisDrive.disconnect(); 
+    openBackupModal();
   });
 }
 
@@ -2764,24 +2781,12 @@ function oferecerRestauracaoNovoAparelho() {
       <div style="font-size:2.5rem;">🐝</div>
       <h2 style="margin:0;">Bem-vindo ao ApisApp Pro</h2>
       <p style="font-size:0.9rem; color:var(--slate-200);">
-        Já usava o app em outro celular? Restaure seu backup salvo no <strong>Drive</strong> ou <strong>iCloud</strong> e continue de onde parou.
+        Já usava o app em outro dispositivo? Restaure seu backup salvo no <strong>Google Drive, OneDrive, MEGA, Dropbox ou iCloud</strong>.
       </p>
-      <button class="btn btn-primary" id="btn-novo-google">🔄 Entrar com Google e restaurar</button>
-      <button class="btn btn-secondary" id="btn-novo-restaurar">📥 Escolher arquivo de backup</button>
-      <button class="btn btn-secondary" id="btn-novo-comecar">Começar do zero</button>
+      <button class="btn btn-primary" id="btn-novo-restaurar">📥 Escolher Arquivo de Backup (.json)</button>
+      <button class="btn btn-secondary" id="btn-novo-comecar">Começar do Zero</button>
     </div>`;
   document.body.appendChild(tela);
-
-  document.getElementById('btn-novo-google').addEventListener('click', async () => {
-    try {
-      await ApisDrive.connect();
-      const ok = await ApisDrive.restore();
-      if (!ok) { alert('Nenhum backup encontrado nesta conta Google. Você pode começar do zero; o backup automático já está ligado.'); return; }
-      tela.remove();
-      alert('Backup restaurado do Google Drive!');
-      if (ApisStorage.getApicultorInfo()) IniciarAplicativoNormal(); else exibirTelaPrimeiroAcesso();
-    } catch (e) { alert('Não foi possível acessar o Google Drive: ' + e.message); }
-  });
 
   document.getElementById('btn-novo-restaurar').addEventListener('click', () => {
     escolherArquivoBackup((ok) => {
@@ -2792,159 +2797,134 @@ function oferecerRestauracaoNovoAparelho() {
       else exibirTelaPrimeiroAcesso();
     });
   });
+
   document.getElementById('btn-novo-comecar').addEventListener('click', () => {
     tela.remove();
     exibirTelaPrimeiroAcesso();
   });
 }
-
-
 // ==========================================================================
-// BACKUP AUTOMÁTICO NO GOOGLE DRIVE (pasta privada do app na conta Google)
+// AUTOMATIZAÇÃO E SINCRONIZAÇÃO EM SEGUNDO PLANO (GOOGLE DRIVE)
 // ==========================================================================
+// Substitua o link abaixo pela URL gerada ao publicar o seu Google Apps Script (Passo do Web App)
+const GOOGLE_WEBAPP_URL = 'https://script.google.com/macros/s/AKfycbxxkU07G3dExu-2hFgQejDs_pIOe9XCYEBumnrnEnEYwd9XBAZ5JoKqzKoSUUgqVJvO/exec';
+
 const ApisDrive = {
-  FILE_NAME: 'apisapp_backup.json',
   KEY_CONNECTED: 'apisapp_drive_connected',
-  KEY_LAST_SYNC: 'apisapp_drive_last_sync',
-  KEY_LAST_HASH: 'apisapp_drive_last_hash',
-  token: null,
-  tokenExp: 0,
-  _client: null,
+  KEY_LAST_SYNC_DATE: 'apisapp_drive_last_sync_date',
   _timer: null,
 
-  isConnected() { return localStorage.getItem(this.KEY_CONNECTED) === '1'; },
+  isConnected() { 
+    return localStorage.getItem(this.KEY_CONNECTED) === '1'; 
+  },
+
   statusText() {
-    if (location.protocol === 'file:') return 'Disponível apenas quando o app é aberto por um endereço de internet (https).';
-    if (!this.isConnected()) return 'Desligado. Ligue para enviar seus dados ao Google Drive automaticamente.';
-    const t = localStorage.getItem(this.KEY_LAST_SYNC);
-    return 'Ligado ✅ Último envio: ' + (t ? new Date(t).toLocaleString('pt-BR') : 'ainda não enviado');
+    if (typeof GOOGLE_WEBAPP_URL === 'undefined' || GOOGLE_WEBAPP_URL.includes('SUA_URL_AQUI')) {
+      return '⚠️ Configure a URL do seu Google Apps Script na variável GOOGLE_WEBAPP_URL para ativar o envio diário.';
+    }
+    if (!this.isConnected()) {
+      return 'Desligado. Ligue para enviar automaticamente 1 backup diário ao Google Drive quando houver internet.';
+    }
+    const t = localStorage.getItem(this.KEY_LAST_SYNC_DATE);
+    const hoje = new Date().toISOString().split('T')[0];
+    const enviadoHoje = (t === hoje);
+    return 'Conectado ✅ Auto-Sync Diário Ativo. ' + (enviadoHoje ? 'Backup de hoje já foi enviado!' : 'Aguardando envio do dia...');
   },
 
-  loadGis() {
-    if (window.google && google.accounts && google.accounts.oauth2) return Promise.resolve();
-    return new Promise((res, rej) => {
-      const sc = document.createElement('script');
-      sc.src = 'https://accounts.google.com/gsi/client';
-      sc.async = true; sc.onload = () => res(); sc.onerror = () => rej(new Error('sem internet'));
-      document.head.appendChild(sc);
+  async upload(force = false) {
+    if (typeof GOOGLE_WEBAPP_URL === 'undefined' || GOOGLE_WEBAPP_URL.includes('SUA_URL_AQUI')) {
+      throw new Error('URL do Google Apps Script não configurada.');
+    }
+    
+    if (!navigator.onLine) return false;
+
+    const hoje = new Date().toISOString().split('T')[0];
+    const ultimoEnvio = localStorage.getItem(this.KEY_LAST_SYNC_DATE);
+
+    // Regra: Envia apenas 1 vez por dia se não for um clique forçado ("Enviar Agora")
+    if (!force && ultimoEnvio === hoje) {
+      return false;
+    }
+
+    const backup = ApisStorage.getFullBackup();
+
+    const response = await fetch(GOOGLE_WEBAPP_URL, {
+      method: 'POST',
+      mode: 'cors',
+      headers: { 'Content-Type': 'text/plain;charset=utf-8' },
+      body: JSON.stringify(backup)
     });
+
+    const result = await response.json();
+    if (result.status === 'success') {
+      localStorage.setItem(this.KEY_LAST_SYNC_DATE, hoje);
+      return true;
+    } else {
+      throw new Error(result.message || 'Erro ao guardar no Google Drive.');
+    }
   },
 
-  async requestToken(prompt) {
-    if (location.protocol === 'file:') throw new Error('abra o app por um endereço https');
-    if (GOOGLE_CLIENT_ID.indexOf('COLE_AQUI') === 0) throw new Error('ID do Google não configurado');
-    await this.loadGis();
-    return new Promise((res, rej) => {
-      const client = google.accounts.oauth2.initTokenClient({
-        client_id: GOOGLE_CLIENT_ID,
-        scope: 'https://www.googleapis.com/auth/drive.appdata',
-        callback: (r) => {
-          if (r.error) return rej(new Error(r.error));
-          this.token = r.access_token;
-          this.tokenExp = Date.now() + (Number(r.expires_in || 3600) - 60) * 1000;
-          res(this.token);
-        },
-        error_callback: (e) => rej(new Error(e.type || 'login cancelado'))
-      });
-      client.requestAccessToken({ prompt: prompt });
-    });
+  async listBackups() {
+    if (!navigator.onLine) throw new Error('Conecte-se à internet para carregar os backups do Google Drive.');
+    
+    const info = ApisStorage.getApicultorInfo();
+    const apiario = info ? info.apiarioPrincipal : 'Geral';
+    const url = `${GOOGLE_WEBAPP_URL}?action=list&apiario=${encodeURIComponent(apiario)}`;
+
+    const response = await fetch(url);
+    const result = await response.json();
+    if (result.status === 'success') {
+      return result.files || [];
+    } else {
+      throw new Error(result.message || 'Erro ao listar backups.');
+    }
   },
 
-  hasValidToken() { return this.token && Date.now() < this.tokenExp; },
+  async restoreFromDrive(fileId) {
+    if (!navigator.onLine) throw new Error('Conecte-se à internet para restaurar o backup.');
+    
+    const url = `${GOOGLE_WEBAPP_URL}?action=download&fileId=${encodeURIComponent(fileId)}`;
+    const response = await fetch(url);
+    const text = await response.text();
 
-  async ensureToken(fromTap) {
-    if (this.hasValidToken()) return this.token;
-    if (!fromTap) throw new Error('precisa de um toque');
-    return this.requestToken('');
+    const ok = ApisStorage.importJSON(text);
+    if (!ok) throw new Error('O arquivo selecionado não contém dados válidos.');
+    return true;
   },
 
-  async connect() {
-    await this.requestToken('consent');
+  connect() {
     localStorage.setItem(this.KEY_CONNECTED, '1');
     this.startAuto();
+    return this.upload(true);
   },
 
   disconnect() {
-    if (this.token && window.google) google.accounts.oauth2.revoke(this.token, () => {});
-    this.token = null; this.tokenExp = 0;
     localStorage.removeItem(this.KEY_CONNECTED);
-    localStorage.removeItem(this.KEY_LAST_HASH);
+    localStorage.removeItem(this.KEY_LAST_SYNC_DATE);
   },
 
-  async api(url, opts) {
-    opts = opts || {};
-    opts.headers = Object.assign({ Authorization: 'Bearer ' + this.token }, opts.headers || {});
-    const r = await fetch(url, opts);
-    if (r.status === 401) { this.token = null; throw new Error('sessão Google expirada'); }
-    if (!r.ok) throw new Error('Google Drive respondeu ' + r.status + ': ' + await r.text());
-    return r;
-  },
-
-  async findFile() {
-    const q = encodeURIComponent("name='" + this.FILE_NAME + "'");
-    const r = await this.api('https://www.googleapis.com/drive/v3/files?spaces=appDataFolder&q=' + q + '&fields=files(id,modifiedTime)');
-    const j = await r.json();
-    return (j.files && j.files[0]) || null;
-  },
-
-  hash(str) { let h = 0; for (let i = 0; i < str.length; i++) h = (h * 31 + str.charCodeAt(i)) | 0; return String(h); },
-
-  async upload(force) {
-    const backup = ApisStorage.getFullBackup();
-    const comparable = JSON.stringify(Object.assign({}, backup, { exportedAt: null }));
-    const h = this.hash(comparable);
-    if (!force && localStorage.getItem(this.KEY_LAST_HASH) === h) return false;
-
-    const body = JSON.stringify(backup);
-    const existing = await this.findFile();
-    if (existing) {
-      await this.api('https://www.googleapis.com/upload/drive/v3/files/' + existing.id + '?uploadType=media', {
-        method: 'PATCH', headers: { 'Content-Type': 'application/json' }, body: body
-      });
-    } else {
-      const boundary = 'apis' + Date.now();
-      const meta = { name: this.FILE_NAME, parents: ['appDataFolder'], mimeType: 'application/json' };
-      const multipart = '--' + boundary + '\r\nContent-Type: application/json; charset=UTF-8\r\n\r\n' + JSON.stringify(meta) +
-        '\r\n--' + boundary + '\r\nContent-Type: application/json\r\n\r\n' + body + '\r\n--' + boundary + '--';
-      await this.api('https://www.googleapis.com/upload/drive/v3/files?uploadType=multipart', {
-        method: 'POST', headers: { 'Content-Type': 'multipart/related; boundary=' + boundary }, body: multipart
-      });
-    }
-    localStorage.setItem(this.KEY_LAST_HASH, h);
-    localStorage.setItem(this.KEY_LAST_SYNC, new Date().toISOString());
-    return true;
-  },
-
-  async restore() {
-    const f = await this.findFile();
-    if (!f) return false;
-    const r = await this.api('https://www.googleapis.com/drive/v3/files/' + f.id + '?alt=media');
-    const ok = ApisStorage.importJSON(await r.text());
-    if (!ok) throw new Error('arquivo de backup inválido');
-    const backup = ApisStorage.getFullBackup();
-    localStorage.setItem(this.KEY_LAST_HASH, this.hash(JSON.stringify(Object.assign({}, backup, { exportedAt: null }))));
-    return true;
-  },
-
-  async autoSync(fromTap) {
-    if (!this.isConnected() || !navigator.onLine || location.protocol === 'file:') return;
+  async autoSync() {
+    if (!this.isConnected() || !navigator.onLine) return;
     try {
-      await this.ensureToken(fromTap);
       await this.upload(false);
-    } catch (e) { /* tenta de novo no próximo toque ou ciclo */ }
+    } catch (e) {
+      console.warn('Falha na sincronização diária em segundo plano:', e);
+    }
   },
 
   startAuto() {
-    if (this._timer || !this.isConnected()) return;
-    // O Google exige um toque para renovar o acesso: aproveita o primeiro toque na tela quando necessário
-    document.addEventListener('pointerdown', () => {
-      if (this.isConnected() && !this.hasValidToken() && navigator.onLine) this.autoSync(true);
-    }, true);
-    // Verifica alterações a cada 2 minutos e ao sair do app
-    this._timer = setInterval(() => this.autoSync(false), 120000);
+    if (!this.isConnected()) return;
+
+    if (navigator.onLine) {
+      this.autoSync();
+    }
+
+    if (!this._timer) {
+      this._timer = setInterval(() => this.autoSync(), 3600000); // Verifica a cada 1 hora se mudou o dia
+    }
+
     document.addEventListener('visibilitychange', () => {
-      if (document.visibilityState === 'hidden') this.autoSync(false);
+      if (document.visibilityState === 'visible') this.autoSync();
     });
-    setTimeout(() => this.autoSync(false), 3000);
   }
 };
