@@ -1,5 +1,5 @@
 /**
- * ApisApp Pro v1.7.0 - Código Unificado Standalone
+ * ApisApp Pro v1.10.0 - Código Unificado Standalone
  * Gestão de Apicultura (Apis mellifera)
  * Suporte a execução por duplo clique (file://) e por servidor local (http://)
  * Compatível com múltiplos serviços de armazenamento gratuito na nuvem (Drive, OneDrive, MEGA, Dropbox, iCloud)
@@ -48,7 +48,8 @@ const EMPTY_DATA = {
   insumos: [],
   recur: [],
   docs: [],
-  goals: []
+  goals: [],
+  foodtypes: []
 };
 
 const ApisStorage = {
@@ -147,7 +148,8 @@ const ApisStorage = {
       insumos: JSON.parse(localStorage.getItem('apisapp_insumos') || '[]'),
       recur: JSON.parse(localStorage.getItem('apisapp_recur') || '[]'),
       docs: JSON.parse(localStorage.getItem('apisapp_docs') || '[]'),
-      goals: JSON.parse(localStorage.getItem('apisapp_goals') || '[]')
+      goals: JSON.parse(localStorage.getItem('apisapp_goals') || '[]'),
+      foodtypes: JSON.parse(localStorage.getItem('apisapp_foodtypes') || '[]')
     };
   },
 
@@ -166,6 +168,7 @@ const ApisStorage = {
     localStorage.setItem('apisapp_recur', JSON.stringify(data.recur || []));
     localStorage.setItem('apisapp_docs', JSON.stringify(data.docs || []));
     localStorage.setItem('apisapp_goals', JSON.stringify(data.goals || []));
+    localStorage.setItem('apisapp_foodtypes', JSON.stringify(data.foodtypes || []));
   },
 
   clearAll() {
@@ -268,7 +271,7 @@ const ApisStorage = {
   getFullBackup() {
     return Object.assign({}, this.getAll(), {
       _apisapp_backup: true,
-      version: '1.7.0',
+      version: '1.10.0',
       exportedAt: new Date().toISOString(),
       apicultorInfo: JSON.parse(localStorage.getItem(STORAGE_KEYS.APICULTOR_INFO) || 'null'),
       settings: JSON.parse(localStorage.getItem(STORAGE_KEYS.SETTINGS) || 'null'),
@@ -706,17 +709,30 @@ function buildAlertsHtml(data) {
   const A = [];
   const today = new Date();
   const yr = today.getFullYear();
+  const unrev = [];
   const lastInsp = {};
   data.inspections.forEach(i => { if (!lastInsp[i.hiveId] || i.date > lastInsp[i.hiveId]) lastInsp[i.hiveId] = i.date; });
   data.hives.forEach(h => {
     const li = lastInsp[h.id];
     const days = li ? Math.floor((today - new Date(li + 'T12:00:00')) / 864e5) : null;
-    if (days === null) A.push('🔎 ' + esc(h.code) + ' ainda não foi inspecionada');
-    else if (days > 30) A.push('🔎 ' + esc(h.code) + ' sem inspeção há ' + days + ' dias');
+    if (days === null) unrev.push({ ap: h.apiaryId, code: h.code, days: 99999, txt: 'nunca inspecionada' });
+    else if (days > 30) unrev.push({ ap: h.apiaryId, code: h.code, days: days, txt: 'sem inspeção há ' + days + ' dias' });
     const qy = parseInt(h.queen && h.queen.year, 10);
     if (qy && yr - qy >= 2) A.push('👑 ' + esc(h.code) + ': rainha de ' + qy + ' — avaliar troca');
     if (h.status === 'Atenção') A.push('⚠️ ' + esc(h.code) + ' está em status Atenção');
   });
+  if (unrev.length) {
+    const groups = {};
+    unrev.forEach(u => { (groups[u.ap] = groups[u.ap] || []).push(u); });
+    const blocks = Object.keys(groups)
+      .map(id => ({ name: (data.apiaries.find(x => x.id === id) || {}).name || 'Sem núcleo', list: groups[id].sort((x, y) => y.days - x.days) }))
+      .sort((x, y) => y.list.length - x.list.length);
+    const html = blocks.map(g => '<div style="margin-top:0.5rem;"><strong style="color:var(--honey-400);">🏞️ ' + esc(g.name) + ' — ' + g.list.length + (g.list.length === 1 ? ' caixa' : ' caixas') + '</strong>' +
+      '<ul style="margin:0.2rem 0 0 1.2rem; padding:0; list-style:disc; font-size:0.85rem;">' + g.list.map(u => '<li>' + esc(u.code) + ' — ' + u.txt + '</li>').join('') + '</ul></div>').join('');
+    A.unshift('🔎 <strong>' + unrev.length + (unrev.length === 1 ? ' caixa sem revisão' : ' caixas sem revisão') + '</strong> em ' + blocks.length + (blocks.length === 1 ? ' núcleo' : ' núcleos') +
+      ' <button type="button" class="btn btn-secondary" style="padding:0.2rem 0.6rem; font-size:0.75rem; margin-left:0.5rem;" onclick="var l=document.getElementById(\'unrev-list\');var o=l.style.display===\'none\';l.style.display=o?\'block\':\'none\';this.textContent=o?\'Ocultar\':\'Ver quais\';">Ver quais</button>' +
+      '<div id="unrev-list" style="display:none;">' + html + '</div>');
+  }
   data.harvests.filter(h => h.product === 'Mel' && parseFloat(h.moisturePct) > 20)
     .forEach(h => A.push('💧 Lote ' + esc(h.batchNumber) + ' com umidade ' + h.moisturePct + '% (acima de 20%, risco de fermentar)'));
   const t = todayISO();
@@ -1097,8 +1113,109 @@ const MAN_KEYS = { MAN: 'apisapp_manejo', TASKS: 'apisapp_tasks' };
 const MAN_KINDS = { alim: '🍬 Alimentação', trat: '💊 Tratamento', peso: '⚖️ Pesagem', divisao: '🔀 Divisão/Junção' };
 let manFilter = 'all';
 
+const FOOD_KEY = 'apisapp_foodtypes';
+
+function foodUnitCost(f, ins) {
+  if (f.ingredients && f.ingredients.length && f.yieldQty > 0) {
+    const tot = f.ingredients.reduce((s, g) => { const it = ins.find(x => x.id === g.insId); return s + (it ? convUnit(g.qty, g.un, it.unit) * (it.cost || 0) : 0); }, 0);
+    return tot / f.yieldQty;
+  }
+  return f.cost || 0;
+}
+
+function deductFoodStock(itens, n) {
+  const foods = FinStore.get(FOOD_KEY);
+  const ins = FinStore.get('apisapp_insumos');
+  itens.forEach(i => {
+    const f = foods.find(x => x.id === i.foodId);
+    if (!f || !f.ingredients || !f.ingredients.length || !f.yieldQty) return;
+    const frac = convUnit(i.qtd * n, i.un, f.unit) / f.yieldQty;
+    f.ingredients.forEach(g => {
+      const it = ins.find(x => x.id === g.insId);
+      if (it) it.qty = Math.round((it.qty - convUnit(g.qty * frac, g.un, it.unit)) * 1000) / 1000;
+    });
+  });
+  FinStore.put('apisapp_insumos', ins);
+}
+
+function openFoodTypesModal(editId) {
+  const list = FinStore.get(FOOD_KEY);
+  const ins = FinStore.get('apisapp_insumos');
+  const ed = list.find(x => x.id === editId) || { name: '', unit: 'L', yieldQty: '', waterL: '', cost: '', ingredients: [] };
+  const bs = 'padding:0.3rem 0.6rem; font-size:0.75rem;';
+  const unitOpts = sel => ['L', 'ml', 'kg', 'g', 'un'].map(u => '<option' + (u === sel ? ' selected' : '') + '>' + u + '</option>').join('');
+  const table = list.length
+    ? '<table class="data-table"><thead><tr><th>Alimento / receita</th><th>Rende</th><th>Custo</th><th></th></tr></thead><tbody>' + list.map(f =>
+        '<tr><td><strong>' + esc(f.name) + '</strong>' + (f.ingredients && f.ingredients.length ? '<br><small style="color:var(--slate-400);">' + f.ingredients.map(g => { const it = ins.find(x => x.id === g.insId); return esc(it ? it.name : '?') + ' ' + g.qty + ' ' + esc(g.un); }).join(' + ') + (f.waterL ? ' + água ' + f.waterL + ' L' : '') + '</small>' : '') + '</td><td>' + (f.yieldQty ? f.yieldQty + ' ' + esc(f.unit) : '-') + '</td><td>' + brl(foodUnitCost(f, ins)) + ' / ' + esc(f.unit) + '</td><td style="white-space:nowrap;"><button type="button" class="btn btn-secondary ft-edit" data-id="' + f.id + '" style="' + bs + '">✏️</button> <button type="button" class="btn btn-danger ft-del" data-id="' + f.id + '" style="' + bs + '">🗑️</button></td></tr>').join('') + '</tbody></table>'
+    : '<div style="color:var(--slate-400); padding:0.5rem;">Nenhum tipo cadastrado.</div>';
+  openModal('🍬 Tipos de alimentação (receitas)', `
+    <div class="table-responsive">${table}</div>
+    <form id="form-food" class="form-grid" style="margin-top:1rem;">
+      <div class="form-group"><label>${editId ? 'Editando:' : 'Novo alimento:'}</label><input type="text" id="ft-name" class="form-control" value="${esc(ed.name)}" placeholder="Ex.: Xarope 1:1, Proteico" required></div>
+      <div class="form-group"><label>Unidade do produto pronto:</label><select id="ft-unit" class="form-control">${unitOpts(ed.unit)}</select></div>
+      <div style="grid-column:1 / -1;">
+        <label style="font-weight:600;">Receita — matéria-prima do estoque de Insumos (opcional):</label>
+        <div id="ft-ings"></div>
+        <button type="button" class="btn btn-secondary" id="ft-add-ing" style="font-size:0.8rem;">+ Ingrediente</button>
+      </div>
+      <div class="form-group"><label>Água usada (L):</label><input type="number" id="ft-water" class="form-control" min="0" step="any" value="${ed.waterL || ''}"></div>
+      <div class="form-group"><label>Rendimento: quanto fica pronto (na unidade acima):</label><input type="number" id="ft-yield" class="form-control" min="0" step="any" value="${ed.yieldQty || ''}"><button type="button" class="btn btn-secondary" id="ft-est" style="font-size:0.75rem; margin-top:0.3rem;">🧮 Estimar volume do xarope</button></div>
+      <div class="form-group"><label>Custo fixo por unidade (R$) — só se não usar receita:</label><input type="number" id="ft-cost" class="form-control" min="0" step="0.0001" value="${ed.cost || ''}"></div>
+      <div style="grid-column:1 / -1; display:flex; justify-content:flex-end; gap:0.75rem;">
+        <button type="button" class="btn btn-secondary" id="ft-close">Fechar</button>
+        <button type="submit" class="btn btn-primary">${editId ? 'Salvar' : '+ Adicionar'}</button>
+      </div>
+    </form>`);
+  const ingBox = document.getElementById('ft-ings');
+  const insOptsF = ins.map(i => '<option value="' + i.id + '" data-un="' + esc(i.unit) + '">' + esc(i.name) + ' (' + esc(i.unit) + ')</option>').join('');
+  const addIng = g => {
+    ingBox.insertAdjacentHTML('beforeend', '<div class="ing-row" style="display:grid; grid-template-columns:minmax(0,2fr) minmax(0,1fr) minmax(0,1fr) auto; gap:0.4rem; margin-bottom:0.4rem;"><select class="form-control g-ins" style="min-width:0;">' + insOptsF + '</select><input type="number" class="form-control g-qty" min="0" step="any" placeholder="Qtd" style="min-width:0;"><select class="form-control g-un" style="min-width:0;">' + unitOpts(g ? g.un : (ins[0] ? ins[0].unit : 'kg')) + '</select><button type="button" class="btn btn-danger g-del">✕</button></div>');
+    const row = ingBox.lastElementChild;
+    if (g) { row.querySelector('.g-ins').value = g.insId; row.querySelector('.g-qty').value = g.qty; }
+    row.querySelector('.g-ins').addEventListener('change', e => { row.querySelector('.g-un').value = e.target.selectedOptions[0].dataset.un; });
+    row.querySelector('.g-del').addEventListener('click', () => row.remove());
+  };
+  (ed.ingredients || []).forEach(addIng);
+  document.getElementById('ft-add-ing').addEventListener('click', () => {
+    if (!ins.length) { alert('Cadastre antes a matéria-prima (açúcar, milho, soja...) na aba 📦 Insumos, com o custo.'); return; }
+    addIng();
+  });
+  document.getElementById('ft-est').addEventListener('click', () => {
+    if (document.getElementById('ft-unit').value !== 'L') { alert('A estimativa vale para xarope em litros.'); return; }
+    let sugarKg = 0;
+    ingBox.querySelectorAll('.ing-row').forEach(r => {
+      const it = ins.find(x => x.id === r.querySelector('.g-ins').value);
+      if (it && /a[çc][uú]car/i.test(it.name)) sugarKg += convUnit(parseFloat(r.querySelector('.g-qty').value) || 0, r.querySelector('.g-un').value, 'kg');
+    });
+    const water = parseFloat(document.getElementById('ft-water').value) || 0;
+    if (!sugarKg || !water) { alert('Informe o açúcar nos ingredientes e a água usada em litros.'); return; }
+    document.getElementById('ft-yield').value = (water + 0.63 * sugarKg).toFixed(2);
+  });
+  document.getElementById('ft-close').addEventListener('click', () => { closeModal(); renderApp(); });
+  document.getElementById('form-food').addEventListener('submit', e => {
+    e.preventDefault();
+    const ingredients = Array.from(ingBox.querySelectorAll('.ing-row')).map(r => ({ insId: r.querySelector('.g-ins').value, qty: parseFloat(r.querySelector('.g-qty').value) || 0, un: r.querySelector('.g-un').value })).filter(g => g.insId && g.qty > 0);
+    const yieldQty = parseFloat(document.getElementById('ft-yield').value) || 0;
+    if (ingredients.length && !yieldQty) { alert('Informe o rendimento (ou use Estimar volume).'); return; }
+    const rec = { name: document.getElementById('ft-name').value.trim(), unit: document.getElementById('ft-unit').value, ingredients, waterL: parseFloat(document.getElementById('ft-water').value) || 0, yieldQty, cost: parseFloat(document.getElementById('ft-cost').value) || 0 };
+    if (editId) rec.id = editId;
+    FinStore.save(FOOD_KEY, rec, 'food');
+    openFoodTypesModal();
+  });
+  document.querySelectorAll('.ft-edit').forEach(b => b.addEventListener('click', () => openFoodTypesModal(b.dataset.id)));
+  document.querySelectorAll('.ft-del').forEach(b => b.addEventListener('click', () => {
+    if (confirm('Excluir este tipo? Registros antigos não são alterados.')) { FinStore.del(FOOD_KEY, b.dataset.id); openFoodTypesModal(); }
+  }));
+}
+
+function convUnit(q, from, to) {
+  const f = { g: ['m', 1], kg: ['m', 1000], ml: ['v', 1], l: ['v', 1000] };
+  const a = f[String(from).toLowerCase()], b = f[String(to).toLowerCase()];
+  return (a && b && a[0] === b[0]) ? q * a[1] / b[1] : q;
+}
+
 function manDetail(r, all) {
-  if (r.kind === 'alim') return esc(r.tipo) + ' · ' + r.qtd + ' por colmeia' + (r.custo ? ' · ' + brl(r.custo) : '');
+  if (r.kind === 'alim') return (r.itens && r.itens.length ? r.itens.map(i => esc(i.tipo) + ' ' + i.qtd + ' ' + esc(i.un)).join(' + ') : esc(r.tipo) + ' ' + r.qtd) + ' por colmeia';
   if (r.kind === 'trat') return esc(r.produto) + (r.dose ? ' (' + esc(r.dose) + ')' : '') + (r.motivo ? ' — ' + esc(r.motivo) : '') + (r.carenciaAte ? '<br><small style="color:var(--honey-400);">Carência até ' + fmtDate(r.carenciaAte) + '</small>' : '');
   if (r.kind === 'peso') {
     const prev = all.filter(x => x.kind === 'peso' && x.hiveId === r.hiveId && x.date < r.date).sort((a, b) => b.date.localeCompare(a.date))[0];
@@ -1129,6 +1246,7 @@ function renderManejoView(data) {
         <div style="display:flex; gap:0.5rem; flex-wrap:wrap;">
           ${Object.keys(MAN_KINDS).map(k => '<button class="btn btn-primary btn-new-man" data-kind="' + k + '">+ ' + MAN_KINDS[k] + '</button>').join('')}
           <button class="btn btn-secondary" id="btn-new-task">⏰ Tarefa</button>
+          <button class="btn btn-secondary" id="btn-food-types">🍬 Tipos de alimentação</button>
           <button class="btn btn-secondary" id="btn-report">🖨️ Relatório anual</button>
         </div>
       </div>
@@ -1162,6 +1280,7 @@ function bindManejoEvents() {
   document.querySelectorAll('.btn-new-man').forEach(b => b.addEventListener('click', () => openManejoModal(b.dataset.kind)));
   $('man-filter')?.addEventListener('change', e => { manFilter = e.target.value; renderApp(); });
   $('btn-report')?.addEventListener('click', openAnnualReport);
+  $('btn-food-types')?.addEventListener('click', openFoodTypesModal);
   $('btn-new-task')?.addEventListener('click', () => {
     const title = (prompt('Tarefa / lembrete (ex.: revisar apiário Sede):') || '').trim();
     if (!title) return;
@@ -1187,10 +1306,12 @@ function openManejoModal(kind) {
   const hiveOpts = data.hives.map(h => '<option value="' + h.id + '" data-ap="' + h.apiaryId + '">' + esc(h.code) + ' — ' + esc(h.name) + '</option>').join('');
   let extra = '';
   if (kind === 'alim') extra = `
-      <div class="form-group"><label>Tipo:</label><select id="m-tipo" class="form-control"><option>Xarope 1:1</option><option>Xarope 2:1</option><option>Proteico</option><option>Candi</option><option>Outro</option></select></div>
-      <div class="form-group"><label>Quantidade por colmeia (L ou kg):</label><input type="number" id="m-qtd" class="form-control" min="0" step="0.1" value="1" required></div>
-      <div class="form-group"><label>Baixar do estoque (opcional):</label><select id="m-ins" class="form-control"><option value="">Não dar baixa</option>${FinStore.get('apisapp_insumos').map(i => '<option value="' + i.id + '">' + esc(i.name) + ' (' + i.qty + ' ' + esc(i.unit) + ')</option>').join('')}</select></div>
-      <div class="form-group"><label>Custo total (R$, opcional — vai para Gastos):</label><input type="number" id="m-custo" class="form-control" min="0" step="0.01"></div>`;
+      <div style="grid-column:1 / -1;">
+        <label style="font-weight:600;">Alimentos fornecidos neste dia (quantidade por colmeia):</label>
+        <div id="alim-rows"></div>
+        <button type="button" class="btn btn-secondary" id="btn-add-alim" style="font-size:0.8rem;">+ Outro alimento</button>
+      </div>
+      <div class="form-group"><label>Custo total (R$) — calculado pelos tipos cadastrados, pode ajustar:</label><input type="number" id="m-custo" class="form-control" min="0" step="0.01"><small id="m-custo-hint" style="color:var(--slate-400);"></small></div>`;
   if (kind === 'trat') extra = `
       <div class="form-group"><label>Produto:</label><input type="text" id="m-produto" class="form-control" required></div>
       <div class="form-group"><label>Dose:</label><input type="text" id="m-dose" class="form-control"></div>
@@ -1221,6 +1342,63 @@ function openManejoModal(kind) {
   };
   apSel.addEventListener('change', filterHives);
   filterHives();
+  if (kind === 'alim') {
+    const insOpts = '<option value="">Sem baixa no estoque</option>' + FinStore.get('apisapp_insumos').map(i => '<option value="' + i.id + '">' + esc(i.name) + ' (' + i.qty + ' ' + esc(i.unit) + ')</option>').join('');
+    const foods = FinStore.get(FOOD_KEY);
+    const insAll = FinStore.get('apisapp_insumos');
+    const typeOpts = (foods.length
+      ? foods.map(f => '<option value="' + f.id + '" data-un="' + esc(f.unit) + '" data-cost="' + foodUnitCost(f, insAll) + '">' + esc(f.name) + '</option>')
+      : ['Xarope 1:1', 'Xarope 2:1', 'Proteico', 'Candi'].map(n => '<option value="' + n + '" data-un="' + (/Xarope/.test(n) ? 'L' : 'g') + '" data-cost="0">' + n + '</option>')
+    ).join('') + '<option value="__other__" data-un="L" data-cost="0">Outro (sem custo cadastrado)</option>';
+    const rowsEl = document.getElementById('alim-rows');
+    const custoEl = document.getElementById('m-custo');
+    custoEl.addEventListener('input', () => { custoEl.dataset.manual = '1'; });
+    const targetCount = () => hvSel.value === '__all__' ? data.hives.filter(x => x.apiaryId === apSel.value).length : 1;
+    const recalcCost = () => {
+      let per = 0;
+      const n = targetCount();
+      rowsEl.querySelectorAll('.alim-row').forEach(r => {
+        const sel = r.querySelector('.a-tipo');
+        const opt = sel.selectedOptions[0];
+        const qty = parseFloat(r.querySelector('.a-qtd').value) || 0;
+        const un = r.querySelector('.a-un').value;
+        per += convUnit(qty, un, opt.dataset.un) * (parseFloat(opt.dataset.cost) || 0);
+        const f = foods.find(x => x.id === sel.value);
+        let hint = '';
+        if (f && f.ingredients && f.ingredients.length && f.yieldQty) {
+          const frac = convUnit(qty * n, un, f.unit) / f.yieldQty;
+          hint = 'Desconta do estoque: ' + f.ingredients.map(g => { const it = insAll.find(x => x.id === g.insId); return it ? esc(it.name) + ' ' + (Math.round(convUnit(g.qty * frac, g.un, it.unit) * 1000) / 1000) + ' ' + esc(it.unit) : ''; }).filter(Boolean).join(' · ');
+        }
+        r.querySelector('.a-stock-hint').innerHTML = hint;
+      });
+      if (!custoEl.dataset.manual) custoEl.value = per * n > 0 ? (per * n).toFixed(2) : '';
+      document.getElementById('m-custo-hint').textContent = per > 0 ? 'Calculado: ' + brl(per) + ' por colmeia × ' + n + ' colmeia(s)' : (foods.length ? '' : 'Cadastre os tipos de alimentação (botão 🍬) para calcular o custo automaticamente.');
+    };
+    const addRow = () => {
+      rowsEl.insertAdjacentHTML('beforeend', '<div class="alim-row" style="display:grid; grid-template-columns:minmax(0,1fr) minmax(0,1fr); gap:0.5rem; margin-bottom:0.75rem; padding-bottom:0.75rem; border-bottom:1px dashed var(--slate-700);">' +
+        '<div style="grid-column:1 / -1; min-width:0;"><select class="form-control a-tipo" style="width:100%;">' + typeOpts + '</select><input type="text" class="form-control a-outro" placeholder="Qual alimento?" style="display:none; margin-top:0.3rem; width:100%;"></div>' +
+        '<input type="number" class="form-control a-qtd" min="0" step="any" placeholder="Quantidade" value="1" style="min-width:0; width:100%;">' +
+        '<select class="form-control a-un" style="min-width:0; width:100%;"><option>L</option><option>ml</option><option>kg</option><option>g</option></select>' +
+        '<div class="a-stock-hint" style="grid-column:1 / -1; font-size:0.78rem; color:var(--slate-400);"></div>' +
+        '<button type="button" class="btn btn-danger a-del" style="grid-column:1 / -1;">✕ Remover</button></div>');
+      const row = rowsEl.lastElementChild;
+      const tipo = row.querySelector('.a-tipo');
+      row.querySelector('.a-un').value = tipo.selectedOptions[0].dataset.un;
+      tipo.addEventListener('change', () => {
+        row.querySelector('.a-outro').style.display = tipo.value === '__other__' ? 'block' : 'none';
+        row.querySelector('.a-un').value = tipo.selectedOptions[0].dataset.un;
+        recalcCost();
+      });
+      row.querySelector('.a-qtd').addEventListener('input', recalcCost);
+      row.querySelector('.a-un').addEventListener('change', recalcCost);
+      row.querySelector('.a-del').addEventListener('click', () => { if (rowsEl.children.length > 1) { row.remove(); recalcCost(); } });
+      recalcCost();
+    };
+    addRow();
+    document.getElementById('btn-add-alim').addEventListener('click', addRow);
+    apSel.addEventListener('change', recalcCost);
+    hvSel.addEventListener('change', recalcCost);
+  }
   document.getElementById('btn-cancel-man').addEventListener('click', closeModal);
   document.getElementById('form-man').addEventListener('submit', e => {
     e.preventDefault();
@@ -1229,9 +1407,21 @@ function openManejoModal(kind) {
     const targets = hvSel.value === '__all__' ? data.hives.filter(h => h.apiaryId === apId) : data.hives.filter(h => h.id === hvSel.value);
     if (!targets.length) { alert('Nenhuma colmeia neste apiário.'); return; }
     const v = id => (document.getElementById(id) || {}).value;
+    const itens = kind === 'alim' ? Array.from(document.querySelectorAll('.alim-row')).map(r => {
+      const sel = r.querySelector('.a-tipo');
+      const opt = sel.selectedOptions[0];
+      const un = r.querySelector('.a-un').value;
+      const qtd = parseFloat(r.querySelector('.a-qtd').value) || 0;
+      return {
+        tipo: sel.value === '__other__' ? (r.querySelector('.a-outro').value.trim() || 'Outro') : opt.textContent,
+        qtd, un, foodId: sel.value,
+        custo: convUnit(qtd, un, opt.dataset.un) * (parseFloat(opt.dataset.cost) || 0)
+      };
+    }).filter(i => i.qtd > 0) : [];
+    if (kind === 'alim' && !itens.length) { alert('Informe ao menos um alimento com quantidade.'); return; }
     targets.forEach(h => {
       const r = { date, kind, hiveId: h.id, hiveCode: h.code, apiaryId: h.apiaryId };
-      if (kind === 'alim') Object.assign(r, { tipo: v('m-tipo'), qtd: parseFloat(v('m-qtd')) || 0 });
+      if (kind === 'alim') r.itens = itens.map(i => ({ tipo: i.tipo, qtd: i.qtd, un: i.un, custo: Math.round(i.custo * 100) / 100 }));
       if (kind === 'trat') {
         const dias = parseInt(v('m-carencia'), 10) || 0;
         const fim = new Date(date + 'T12:00:00'); fim.setDate(fim.getDate() + dias);
@@ -1241,14 +1431,10 @@ function openManejoModal(kind) {
       if (kind === 'divisao') Object.assign(r, { sub: v('m-sub'), destino: v('m-destino').trim(), notas: v('m-notas').trim() });
       FinStore.save(MAN_KEYS.MAN, r, 'man');
     });
-    const insId = v('m-ins');
-    if (kind === 'alim' && insId) {
-      const it = FinStore.get('apisapp_insumos').find(x => x.id === insId);
-      if (it) { it.qty = Math.round((it.qty - (parseFloat(v('m-qtd')) || 0) * targets.length) * 1000) / 1000; FinStore.save('apisapp_insumos', it, 'ins'); }
-    }
+    if (kind === 'alim') deductFoodStock(itens, targets.length);
     const custo = parseFloat(v('m-custo')) || 0;
     if (kind === 'alim' && custo > 0) {
-      FinStore.save(FIN_KEYS.EXPENSES, { date, category: EXPENSE_CATEGORIES[0], desc: 'Alimentação ' + v('m-tipo'), value: custo, apiaryId: apId, type: 'Variável', investment: false }, 'exp');
+      FinStore.save(FIN_KEYS.EXPENSES, { date, category: EXPENSE_CATEGORIES[0], desc: 'Alimentação ' + itens.map(i => i.tipo).join(' + '), value: custo, apiaryId: apId, type: 'Variável', investment: false }, 'exp');
     }
     closeModal();
     renderApp();
@@ -1341,10 +1527,10 @@ function renderInsumosView(data) {
       </div>
       <div class="table-responsive">
         ${list.length === 0 ? '<div style="padding:1.5rem; color:var(--slate-400);">Nenhum insumo cadastrado.</div>' : `
-        <table class="data-table"><thead><tr><th>Insumo</th><th>Saldo</th><th>Mínimo</th><th>Situação</th><th>Ações</th></tr></thead><tbody>
+        <table class="data-table"><thead><tr><th>Insumo</th><th>Saldo</th><th>Custo</th><th>Mínimo</th><th>Situação</th><th>Ações</th></tr></thead><tbody>
           ${list.map(i => {
             const low = i.qty <= i.min;
-            return '<tr><td><strong>' + esc(i.name) + '</strong></td><td>' + i.qty + ' ' + esc(i.unit) + '</td><td>' + i.min + ' ' + esc(i.unit) + '</td><td>' + (low ? '<span class="status-badge status-atencao">Acabando</span>' : '<span class="status-badge status-ativa">OK</span>') + '</td><td style="white-space:nowrap;"><button class="btn btn-primary btn-ins-in" data-id="' + i.id + '" style="' + btnS + '">＋ Entrada</button> <button class="btn btn-secondary btn-ins-out" data-id="' + i.id + '" style="' + btnS + '">－ Baixa</button> <button class="btn btn-danger btn-ins-del" data-id="' + i.id + '" style="' + btnS + '">🗑️</button></td></tr>';
+            return '<tr><td><strong>' + esc(i.name) + '</strong></td><td>' + i.qty + ' ' + esc(i.unit) + '</td><td>' + brl(i.cost || 0) + ' / ' + esc(i.unit) + '</td><td>' + i.min + ' ' + esc(i.unit) + '</td><td>' + (low ? '<span class="status-badge status-atencao">Acabando</span>' : '<span class="status-badge status-ativa">OK</span>') + '</td><td style="white-space:nowrap;"><button class="btn btn-primary btn-ins-in" data-id="' + i.id + '" style="' + btnS + '">＋ Entrada</button> <button class="btn btn-secondary btn-ins-out" data-id="' + i.id + '" style="' + btnS + '">－ Baixa</button> <button class="btn btn-secondary btn-ins-cost" data-id="' + i.id + '" style="' + btnS + '" title="Atualizar custo">💲</button> <button class="btn btn-danger btn-ins-del" data-id="' + i.id + '" style="' + btnS + '">🗑️</button></td></tr>';
           }).join('')}
         </tbody></table>`}
       </div>
@@ -1359,7 +1545,8 @@ function bindInsumosEvents() {
     const unit = (prompt('Unidade (kg, L, un):', 'un') || 'un').trim();
     const qty = num('Quantidade atual:');
     const min = num('Quantidade mínima para alertar:');
-    FinStore.save(INS_KEY, { name, unit, qty: qty || 0, min: min || 0 }, 'ins');
+    const cost = num('Custo por ' + unit + ' (R$):');
+    FinStore.save(INS_KEY, { name, unit, qty: qty || 0, min: min || 0, cost: cost || 0 }, 'ins');
     renderApp();
   });
   const adjust = (id, sign) => {
@@ -1367,11 +1554,17 @@ function bindInsumosEvents() {
     const q = num(sign > 0 ? 'Quantidade que entrou:' : 'Quantidade que saiu:');
     if (!it || !q || q <= 0) return;
     it.qty = Math.round((it.qty + sign * q) * 1000) / 1000;
+    if (sign > 0) { const c = parseFloat(String(prompt('Preço pago por ' + it.unit + ' (R$) — deixe vazio para manter:') || '').replace(',', '.')); if (!isNaN(c) && c >= 0) it.cost = c; }
     FinStore.save(INS_KEY, it, 'ins');
     renderApp();
   };
   document.querySelectorAll('.btn-ins-in').forEach(b => b.addEventListener('click', () => adjust(b.dataset.id, 1)));
   document.querySelectorAll('.btn-ins-out').forEach(b => b.addEventListener('click', () => adjust(b.dataset.id, -1)));
+  document.querySelectorAll('.btn-ins-cost').forEach(b => b.addEventListener('click', () => {
+    const it = FinStore.get(INS_KEY).find(x => x.id === b.dataset.id);
+    const c = it ? parseFloat(String(prompt('Novo custo por ' + it.unit + ' (R$):', it.cost || 0) || '').replace(',', '.')) : NaN;
+    if (it && !isNaN(c) && c >= 0) { it.cost = c; FinStore.save(INS_KEY, it, 'ins'); renderApp(); }
+  }));
   document.querySelectorAll('.btn-ins-del').forEach(b => b.addEventListener('click', () => {
     if (confirm('Excluir este insumo?')) { FinStore.del(INS_KEY, b.dataset.id); renderApp(); }
   }));
@@ -1441,7 +1634,7 @@ function bindHiveCardEvents() {
 }
 
 // ==========================================================================
-// 6. PLANEJAMENTO: PRECIFICAÇÃO, METAS, CAIXA, RECORRÊNCIA, DOCUMENTOS, CSV (v1.7.0)
+// 6. PLANEJAMENTO: PRECIFICAÇÃO, METAS, CAIXA, RECORRÊNCIA, DOCUMENTOS, CSV (v1.10.0)
 // ==========================================================================
 
 const REC_KEY = 'apisapp_recur';
