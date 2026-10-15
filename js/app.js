@@ -1,5 +1,5 @@
 /**
- * ApisApp Pro v1.10.0 - Código Unificado Standalone
+ * ApisApp Pro v1.17.0 - Código Unificado Standalone
  * Gestão de Apicultura (Apis mellifera)
  * Suporte a execução por duplo clique (file://) e por servidor local (http://)
  * Compatível com múltiplos serviços de armazenamento gratuito na nuvem (Drive, OneDrive, MEGA, Dropbox, iCloud)
@@ -49,7 +49,9 @@ const EMPTY_DATA = {
   recur: [],
   docs: [],
   goals: [],
-  foodtypes: []
+  foodtypes: [],
+  equip: [],
+  equipcats: []
 };
 
 const ApisStorage = {
@@ -149,7 +151,9 @@ const ApisStorage = {
       recur: JSON.parse(localStorage.getItem('apisapp_recur') || '[]'),
       docs: JSON.parse(localStorage.getItem('apisapp_docs') || '[]'),
       goals: JSON.parse(localStorage.getItem('apisapp_goals') || '[]'),
-      foodtypes: JSON.parse(localStorage.getItem('apisapp_foodtypes') || '[]')
+      foodtypes: JSON.parse(localStorage.getItem('apisapp_foodtypes') || '[]'),
+      equip: JSON.parse(localStorage.getItem('apisapp_equip') || '[]'),
+      equipcats: JSON.parse(localStorage.getItem('apisapp_equipcats') || '[]')
     };
   },
 
@@ -169,6 +173,8 @@ const ApisStorage = {
     localStorage.setItem('apisapp_docs', JSON.stringify(data.docs || []));
     localStorage.setItem('apisapp_goals', JSON.stringify(data.goals || []));
     localStorage.setItem('apisapp_foodtypes', JSON.stringify(data.foodtypes || []));
+    localStorage.setItem('apisapp_equip', JSON.stringify(data.equip || []));
+    localStorage.setItem('apisapp_equipcats', JSON.stringify(data.equipcats || []));
   },
 
   clearAll() {
@@ -271,13 +277,16 @@ const ApisStorage = {
   getFullBackup() {
     return Object.assign({}, this.getAll(), {
       _apisapp_backup: true,
-      version: '1.10.0',
+      version: '1.17.0',
       exportedAt: new Date().toISOString(),
       apicultorInfo: JSON.parse(localStorage.getItem(STORAGE_KEYS.APICULTOR_INFO) || 'null'),
       settings: JSON.parse(localStorage.getItem(STORAGE_KEYS.SETTINGS) || 'null'),
       queenColors: JSON.parse(localStorage.getItem(STORAGE_KEYS.QUEEN_COLORS) || 'null'),
       boxModels: JSON.parse(localStorage.getItem(STORAGE_KEYS.BOX_MODELS) || 'null'),
-      packages: JSON.parse(localStorage.getItem('apisapp_packages') || 'null')
+      packages: JSON.parse(localStorage.getItem('apisapp_packages') || 'null'),
+      eqroles: JSON.parse(localStorage.getItem('apisapp_eqroles') || 'null'),
+      eqcatcfg: JSON.parse(localStorage.getItem('apisapp_eqcatcfg') || 'null'),
+      eqhivecfg: JSON.parse(localStorage.getItem('apisapp_eqcathive') || 'null')
     });
   },
 
@@ -455,6 +464,9 @@ const ApisStorage = {
         if (data.queenColors) localStorage.setItem(STORAGE_KEYS.QUEEN_COLORS, JSON.stringify(data.queenColors));
         if (data.boxModels) localStorage.setItem(STORAGE_KEYS.BOX_MODELS, JSON.stringify(data.boxModels));
         if (data.packages) localStorage.setItem('apisapp_packages', JSON.stringify(data.packages));
+        if (data.eqroles) { localStorage.setItem('apisapp_eqroles', JSON.stringify(data.eqroles)); if (typeof loadEqRoles === 'function') loadEqRoles(); }
+        if (data.eqcatcfg) localStorage.setItem('apisapp_eqcatcfg', JSON.stringify(data.eqcatcfg));
+        if (data.eqhivecfg) localStorage.setItem('apisapp_eqcathive', JSON.stringify(data.eqhivecfg));
         return true;
       }
       return false;
@@ -1634,7 +1646,7 @@ function bindHiveCardEvents() {
 }
 
 // ==========================================================================
-// 6. PLANEJAMENTO: PRECIFICAÇÃO, METAS, CAIXA, RECORRÊNCIA, DOCUMENTOS, CSV (v1.10.0)
+// 6. PLANEJAMENTO: PRECIFICAÇÃO, METAS, CAIXA, RECORRÊNCIA, DOCUMENTOS, CSV (v1.17.0)
 // ==========================================================================
 
 const REC_KEY = 'apisapp_recur';
@@ -1788,6 +1800,497 @@ function bindPlanEvents() {
   }));
 }
 
+// ==========================================================================
+// 7. ESTOQUE DE CAIXAS E EQUIPAMENTOS (caixas vazias, melgueiras, coletores...) (v1.17.0)
+// ==========================================================================
+
+const EQ_KEY = 'apisapp_equip';
+const EQ_CAT_KEY = 'apisapp_equipcats';
+const EQ_ROLES_KEY = 'apisapp_eqroles';
+const DEFAULT_ROLES = { box: 'Caixa (colmeia)', sup: 'Melgueira', col: 'Melgueira com coletor de própolis', big: 'Melgueirão', nest: 'Sobreninho' };
+let BOX_CAT, SUPER_CAT, COLLECTOR_CAT, BIG_CAT, NEST_CAT;
+function getEqRoles() {
+  try { return Object.assign({}, DEFAULT_ROLES, JSON.parse(localStorage.getItem(EQ_ROLES_KEY) || '{}')); } catch (e) { return Object.assign({}, DEFAULT_ROLES); }
+}
+function loadEqRoles() {
+  const r = getEqRoles();
+  BOX_CAT = r.box; SUPER_CAT = r.sup; COLLECTOR_CAT = r.col; BIG_CAT = r.big; NEST_CAT = r.nest;
+}
+loadEqRoles();
+let eqFilter = 'all';
+
+const eqCats = () => Array.from(new Set([BOX_CAT, SUPER_CAT, COLLECTOR_CAT, BIG_CAT, NEST_CAT].concat(FinStore.get(EQ_CAT_KEY).map(c => c.name), FinStore.get(EQ_KEY).map(x => x.cat))));
+const EQ_CFG_KEY = 'apisapp_eqcatcfg';
+const getEqCfg = () => { try { return JSON.parse(localStorage.getItem(EQ_CFG_KEY) || '{}'); } catch (e) { return {}; } };
+const setEqCfg = c => localStorage.setItem(EQ_CFG_KEY, JSON.stringify(c));
+const eqIsNumbered = cat => { const c = getEqCfg(); if (c[cat] !== undefined) return !!c[cat]; return [SUPER_CAT, COLLECTOR_CAT, BIG_CAT, NEST_CAT].indexOf(cat) === -1; };
+const EQ_HIVE_KEY = 'apisapp_eqcathive';
+const getEqHiveCfg = () => { try { return JSON.parse(localStorage.getItem(EQ_HIVE_KEY) || '{}'); } catch (e) { return {}; } };
+const setEqHiveCfg = c => localStorage.setItem(EQ_HIVE_KEY, JSON.stringify(c));
+const eqInHive = cat => { const c = getEqHiveCfg(); return c[cat] !== undefined ? !!c[cat] : true; };
+const eqSort = (a, b) => String(a.number).localeCompare(String(b.number), undefined, { numeric: true });
+const eqHive = (it, hives) => it.hiveId ? hives.find(h => h.id === it.hiveId) : null;
+
+// Coloca (ou devolve, com hiveId vazio) itens em uma colmeia e atualiza os contadores da colmeia
+function equipSetHive(ids, hiveId) {
+  const list = FinStore.get(EQ_KEY);
+  const touched = new Set();
+  let acc = false;
+  list.forEach(it => {
+    if (ids.indexOf(it.id) === -1) return;
+    if (it.hiveId) touched.add(it.hiveId);
+    it.hiveId = hiveId || '';
+    if (hiveId) touched.add(hiveId);
+    if (it.cat !== BOX_CAT) acc = true;
+  });
+  FinStore.put(EQ_KEY, list);
+  if (!acc) return;
+  touched.forEach(hid => {
+    const hv = ApisStorage.getHives().find(h => h.id === hid);
+    if (!hv) return;
+    const mine = list.filter(x => x.hiveId === hid);
+    const col = mine.filter(x => x.cat === COLLECTOR_CAT).length;
+    const tracked = c => list.some(x => x.cat === c);
+    if (tracked(COLLECTOR_CAT)) hv.collectorSupers = col;
+    if (tracked(SUPER_CAT)) hv.supersCount = mine.filter(x => x.cat === SUPER_CAT).length + (hv.collectorSupers || 0);
+    else if ((hv.collectorSupers || 0) > (hv.supersCount || 0)) hv.supersCount = hv.collectorSupers;
+    if (tracked(BIG_CAT)) hv.supersBig = mine.filter(x => x.cat === BIG_CAT).length;
+    if (tracked(NEST_CAT)) hv.nestExtenders = mine.filter(x => x.cat === NEST_CAT).length;
+    if (!hv.propolisCollectors && col > 0) hv.propolisCollectors = col;
+    if (col > 0) hv.propolisProducer = true;
+    ApisStorage.saveHive(hv);
+  });
+}
+
+function numberingPanelHtml(items, hives) {
+  const fmt = (pre, n) => pre + String(n).padStart(2, '0');
+  const blocks = [];
+  eqCats().filter(c => eqIsNumbered(c)).forEach(cat => {
+    const groups = {};
+    items.filter(x => x.cat === cat && x.number).forEach(x => {
+      const m = String(x.number).match(/^(.*?)(\d+)$/);
+      if (!m) return;
+      (groups[m[1]] = groups[m[1]] || []).push({ n: parseInt(m[2], 10), used: !!(x.hiveId && hives.some(h => h.id === x.hiveId)) });
+    });
+    if (cat === BOX_CAT) hives.forEach(hv => {
+      const m = String(hv.code).match(/^(.*?)(\d+)$/);
+      if (m) { groups[m[1]] = groups[m[1]] || []; groups[m[1]].push({ n: parseInt(m[2], 10), used: true, code: true }); }
+    });
+    Object.keys(groups).forEach(pre => {
+      const g = groups[pre];
+      const usedSet = new Set(g.filter(x => x.used).map(x => x.n));
+      const allSet = new Set(g.map(x => x.n));
+      const stockFree = g.filter(x => !x.used && !x.code && !usedSet.has(x.n)).map(x => x.n).sort((a, b) => a - b);
+      const max = Math.max.apply(null, Array.from(allSet));
+      const maxUsed = usedSet.size ? Math.max.apply(null, Array.from(usedSet)) : 0;
+      const gaps = [];
+      for (let i = 1; i <= max; i++) if (!allSet.has(i)) gaps.push(i);
+      const list = arr => arr.length ? arr.slice(0, 25).map(n => fmt(pre, n)).join(', ') + (arr.length > 25 ? ' … +' + (arr.length - 25) : '') : 'nenhum';
+      blocks.push('<div class="stat-card" style="text-align:left;"><div class="stat-title">🔢 ' + esc(cat) + (pre ? ' — ' + esc(pre) : '') + '</div><div style="font-size:0.85rem; line-height:1.7;">Maior número em uso: <strong>' + (maxUsed ? fmt(pre, maxUsed) : '—') + '</strong><br>Maior cadastrado: <strong>' + fmt(pre, max) + '</strong><br>Próximo número: <strong style="color:var(--honey-400);">' + fmt(pre, max + 1) + '</strong><br>Livres no estoque (sem uso): ' + list(stockFree) + '<br>Números sem cadastro no intervalo: ' + list(gaps) + '</div></div>');
+    });
+  });
+  if (!blocks.length) return '';
+  return '<h3 style="color:var(--honey-400); margin-bottom:0.5rem;">🔢 Numeração do estoque</h3><div class="stats-grid" style="grid-template-columns: repeat(auto-fit, minmax(260px, 1fr)); margin-bottom:1.5rem;">' + blocks.join('') + '</div>';
+}
+
+function hiveExtrasHtml(hive) {
+  const roleNames = [BOX_CAT, SUPER_CAT, COLLECTOR_CAT, BIG_CAT, NEST_CAT];
+  const counts = {};
+  FinStore.get(EQ_KEY).filter(x => x.hiveId === hive.id && roleNames.indexOf(x.cat) === -1).forEach(x => { counts[x.cat] = (counts[x.cat] || 0) + 1; });
+  Object.keys(hive.extras || {}).forEach(c => { if (!counts[c]) counts[c] = hive.extras[c]; });
+  return Object.keys(counts).map(c => '<div class="hive-metric-item"><span>' + esc(c) + '</span><strong>' + counts[c] + ' un</strong></div>').join('');
+}
+
+function equipLinkHives(apply) {
+  const hives = ApisStorage.getHives();
+  const list = FinStore.get(EQ_KEY);
+  const hiveIds = new Set(hives.map(h => h.id));
+  const stats = { hives: new Set(), boxNew: 0, boxReuse: 0, boxConflict: 0, acc: {} };
+  const isFree = x => !(x.hiveId && hiveIds.has(x.hiveId));
+  const norm = s => String(s).toLowerCase().replace(/(\D*)0*(\d+)$/, '$1$2');
+  const uid = () => 'eq-' + Date.now() + '-' + Math.floor(Math.random() * 1e6);
+  const newItem = (cat, hiveId) => {
+    let number = '';
+    if (eqIsNumbered(cat)) {
+      const pre = cat === BOX_CAT ? 'CX-' : cat.slice(0, 2).toUpperCase() + '-';
+      const max = list.filter(x => x.cat === cat && String(x.number).startsWith(pre)).reduce((m, x) => Math.max(m, parseInt(String(x.number).slice(pre.length), 10) || 0), 0);
+      number = pre + String(max + 1).padStart(2, '0');
+    }
+    list.push({ id: uid(), cat, number, hiveId });
+  };
+  hives.forEach(h => {
+    if (!list.some(x => x.cat === BOX_CAT && x.hiveId === h.id)) {
+      const same = list.find(x => x.cat === BOX_CAT && norm(x.number) === norm(h.code));
+      if (same && isFree(same)) { same.hiveId = h.id; stats.boxReuse++; stats.hives.add(h.id); }
+      else if (!same) { list.push({ id: uid(), cat: BOX_CAT, number: h.code, hiveId: h.id }); stats.boxNew++; stats.hives.add(h.id); }
+      else stats.boxConflict++;
+    }
+    const sup = parseInt(h.supersCount, 10) || 0;
+    const colInit = h.propolisProducer === true ? (h.collectorSupers !== undefined ? (parseInt(h.collectorSupers, 10) || 0) : Math.min(parseInt(h.propolisCollectors, 10) || 0, sup)) : 0;
+    const want = { [SUPER_CAT]: Math.max(sup, colInit) - colInit, [COLLECTOR_CAT]: colInit, [BIG_CAT]: parseInt(h.supersBig, 10) || 0, [NEST_CAT]: parseInt(h.nestExtenders, 10) || 0 };
+    Object.keys(h.extras || {}).forEach(c => { want[c] = parseInt(h.extras[c], 10) || 0; });
+    Object.keys(want).forEach(cat => {
+      let need = want[cat] - list.filter(x => x.cat === cat && x.hiveId === h.id).length;
+      if (need <= 0) return;
+      stats.hives.add(h.id);
+      stats.acc[cat] = stats.acc[cat] || { reuse: 0, created: 0 };
+      list.filter(x => x.cat === cat && isFree(x)).sort(eqSort).slice(0, need).forEach(x => { x.hiveId = h.id; need--; stats.acc[cat].reuse++; });
+      while (need-- > 0) { newItem(cat, h.id); stats.acc[cat].created++; }
+    });
+  });
+  if (apply) FinStore.put(EQ_KEY, list);
+  return stats;
+}
+
+function openEqLinkModal() {
+  const s = equipLinkHives(false);
+  const lines = ['Colmeias a vincular: <strong>' + s.hives.size + '</strong>'];
+  if (s.boxNew || s.boxReuse) lines.push('📦 Caixas: ' + s.boxNew + ' criada(s) no estoque já como povoada(s) e ' + s.boxReuse + ' do estoque marcada(s) como povoada(s)');
+  Object.keys(s.acc).forEach(c => lines.push('🔧 ' + esc(c) + ': ' + s.acc[c].created + ' criado(s) e ' + s.acc[c].reuse + ' aproveitado(s) do estoque'));
+  if (s.boxConflict) lines.push('⚠️ ' + s.boxConflict + ' colmeia(s) com código igual ao de uma caixa já usada por outra colmeia — serão ignoradas');
+  const nothing = !s.hives.size;
+  openModal('🔗 Vincular colmeias existentes ao estoque', `
+    <p style="color:var(--slate-400); font-size:0.9rem;">Usa o que já foi preenchido nas colmeias (código, melgueiras, coletores, melgueirões e sobreninhos) para montar o estoque. Pode ser repetido sem duplicar.</p>
+    <ul style="line-height:1.7;">${nothing ? '<li>Todas as colmeias já estão vinculadas ao estoque.</li>' : lines.map(l => '<li>' + l + '</li>').join('')}</ul>
+    <div style="display:flex; justify-content:flex-end; gap:0.75rem; margin-top:1rem;">
+      <button type="button" class="btn btn-secondary" id="lk-cancel">${nothing ? 'Fechar' : 'Cancelar'}</button>
+      ${nothing ? '' : '<button type="button" class="btn btn-primary" id="lk-ok">Vincular agora</button>'}
+    </div>`);
+  document.getElementById('lk-cancel').addEventListener('click', closeModal);
+  document.getElementById('lk-ok')?.addEventListener('click', () => { equipLinkHives(true); closeModal(); renderApp(); });
+}
+
+function equipPlan(hiveId, desired, preferred) {
+  const items = FinStore.get(EQ_KEY);
+  const hives = ApisStorage.getHives();
+  const out = { assign: [], release: [], errors: [], preview: {} };
+  const lab = arr => { const nums = arr.filter(x => x.number).map(x => x.number); const un = arr.length - nums.length; return nums.concat(un ? [un + ' un.'] : []); };
+  Object.keys(desired).forEach(cat => {
+    const all = items.filter(x => x.cat === cat);
+    if (!all.length) { out.preview[cat] = null; return; }
+    const mine = all.filter(x => hiveId && x.hiveId === hiveId).sort(eqSort);
+    const pref = (preferred && preferred[cat]) || [];
+    const free = all.filter(x => !(x.hiveId && hives.some(h => h.id === x.hiveId))).sort((a, b) => ((pref.indexOf(a.id) > -1 ? 0 : 1) - (pref.indexOf(b.id) > -1 ? 0 : 1)) || eqSort(a, b));
+    const want = Math.max(0, desired[cat] || 0);
+    if (want > mine.length) {
+      const need = want - mine.length;
+      if (need > free.length) out.errors.push(cat + ': pedido de ' + want + ', mas só há ' + (mine.length + free.length) + ' disponível(is) no estoque.');
+      const pick = free.slice(0, need);
+      pick.forEach(x => out.assign.push(x.id));
+      out.preview[cat] = { free: free.length, mine: lab(mine), add: lab(pick), remove: [] };
+    } else {
+      const drop = mine.slice(want);
+      drop.forEach(x => out.release.push(x.id));
+      out.preview[cat] = { free: free.length, mine: lab(mine), add: [], remove: lab(drop) };
+    }
+  });
+  return out;
+}
+
+function eqNumberInfo(prefix, hives, boxes) {
+  const re = new RegExp('^' + prefix.replace(/[.*+?^${}()|[\]\\]/g, '\\$&') + '(\\d+)$');
+  const num = s => { const m = String(s).match(re); return m ? parseInt(m[1], 10) : null; };
+  const usedH = new Set(hives.map(h => num(h.code)).filter(n => n !== null));
+  const all = new Set(Array.from(usedH).concat(boxes.map(b => num(b.number)).filter(n => n !== null)));
+  const max = all.size ? Math.max.apply(null, Array.from(all)) : 0;
+  const maxUsed = usedH.size ? Math.max.apply(null, Array.from(usedH)) : 0;
+  const gaps = [];
+  for (let i = 1; i <= max; i++) if (!all.has(i)) gaps.push(i);
+  return { maxUsed, max, next: max + 1, gaps };
+}
+
+function renderEquipView(data) {
+  const items = FinStore.get(EQ_KEY);
+  const cats = eqCats();
+  const hives = data.hives;
+  const used = it => !!eqHive(it, hives);
+  const card = c => {
+    const l = items.filter(x => x.cat === c);
+    const u = l.filter(used).length;
+    const box = c === BOX_CAT;
+    return '<div class="stat-card"><div class="stat-title">' + esc(c) + '</div><div class="stat-value" style="font-size:1.4rem;">' + l.length + '</div><div style="font-size:0.8rem; color:var(--slate-400);">' +
+      (box ? '🐝 ' + u + ' povoadas · 📦 ' + (l.length - u) + ' vazias' : '🔧 ' + u + ' em uso · 📦 ' + (l.length - u) + ' sem uso') + '</div></div>';
+  };
+  const shown = items.filter(x => eqFilter === 'all' || x.cat === eqFilter).sort((a, b) => a.cat.localeCompare(b.cat) || eqSort(a, b));
+  const btnS = 'padding:0.3rem 0.6rem; font-size:0.75rem;';
+  const short = c => c === COLLECTOR_CAT ? 'Melg. c/ coletor' : c;
+
+  const rows = shown.filter(it => it.number).map(it => {
+    const hv = eqHive(it, hives);
+    const ap = hv ? data.apiaries.find(a => a.id === hv.apiaryId) : null;
+    const box = it.cat === BOX_CAT;
+    const sit = hv ? (box ? '🐝 Povoada — ' : '🔧 Em uso — ') + esc(hv.code) + (ap ? ' (' + esc(ap.name) + ')' : '') : (box ? '📦 Vazia (estoque)' : '📦 Sem uso (estoque)');
+    return '<tr><td><strong>' + esc(it.number) + '</strong></td><td>' + esc(it.cat) + '</td><td>' + sit + '</td><td style="white-space:nowrap;">' +
+      (box && !hv ? '<button class="btn btn-primary eq-populate" data-id="' + it.id + '" style="' + btnS + '">🐝 Povoar</button> ' : '') +
+      (hv ? '<button class="btn btn-secondary eq-free" data-id="' + it.id + '" style="' + btnS + '">↩ Liberar</button> ' : '') +
+      '<button class="btn btn-danger eq-del" data-id="' + it.id + '" style="' + btnS + '">🗑️</button></td></tr>';
+  }).join('');
+
+  const unGroups = {};
+  shown.filter(it => !it.number).forEach(it => { (unGroups[it.cat] = unGroups[it.cat] || []).push(it); });
+  const unRows = cats.filter(c => !eqIsNumbered(c) && (eqFilter === 'all' || eqFilter === c)).map(c => {
+    const l = unGroups[c] || [];
+    const u = l.filter(used).length;
+    return '<tr><td><strong>' + l.length + ' un.</strong></td><td>' + esc(c) + ' <small style="color:var(--slate-400);">(sem numeração)</small></td><td>🔧 ' + u + ' em uso · 📦 ' + (l.length - u) + ' livres</td><td style="white-space:nowrap;"><button class="btn btn-primary eq-add-qty" data-cat="' + esc(c) + '" style="' + btnS + '">＋ Adicionar</button> <button class="btn btn-secondary eq-sub-free" data-cat="' + esc(c) + '" style="' + btnS + '">－ 1 livre</button></td></tr>';
+  }).join('');
+  const chipsOf = acc => {
+    const num = acc.filter(x => x.number).map(x => '<span class="tag-badge" style="margin:0.1rem;">' + esc(short(x.cat)) + ' ' + esc(x.number) + ' <a href="#" class="eq-free" data-id="' + x.id + '" title="Devolver ao estoque" style="color:var(--rose-500); text-decoration:none;">✕</a></span>');
+    const g = {};
+    acc.filter(x => !x.number).forEach(x => { (g[x.cat] = g[x.cat] || []).push(x); });
+    return num.concat(Object.keys(g).map(c => '<span class="tag-badge" style="margin:0.1rem;">' + esc(short(c)) + ' ×' + g[c].length + ' <a href="#" class="eq-free" data-id="' + g[c][0].id + '" title="Devolver 1 ao estoque" style="color:var(--rose-500); text-decoration:none;">✕</a></span>')).join('');
+  };
+  const hiveRows = hives.map(h => {
+    const ap = data.apiaries.find(a => a.id === h.apiaryId);
+    const acc = items.filter(x => x.hiveId === h.id && x.cat !== BOX_CAT).sort(eqSort);
+    return '<tr><td><strong>' + esc(h.code) + '</strong><br><small style="color:var(--slate-400);">' + esc(ap ? ap.name : '') + '</small></td><td>' +
+      (chipsOf(acc) || '<span style="color:var(--slate-400);">—</span>') +
+      '</td><td><button class="btn btn-secondary eq-add-acc" data-id="' + h.id + '" style="' + btnS + '">＋ Acessório</button></td></tr>';
+  }).join('');
+
+  return `
+    <div class="glass-panel">
+      <div class="section-header">
+        <div>
+          <h2 class="section-title">🧰 Caixas & Equipamentos</h2>
+          <p style="color:var(--slate-400); font-size:0.9rem;">Estoque numerado de caixas vazias, melgueiras, coletores de própolis, mangueirões e o que mais você cadastrar.</p>
+        </div>
+        <div style="display:flex; gap:0.5rem; flex-wrap:wrap;">
+          <button class="btn btn-primary" id="btn-eq-batch">+ Cadastrar no estoque</button>
+          <button class="btn btn-secondary" id="btn-eq-cat">🏷️ Categorias</button>
+          <button class="btn btn-secondary" id="btn-eq-link">🔗 Vincular colmeias existentes</button>
+        </div>
+      </div>
+      <div class="stats-grid" style="grid-template-columns: repeat(auto-fit, minmax(200px, 1fr)); margin-bottom:1.5rem;">${cats.map(card).join('')}</div>
+
+      ${numberingPanelHtml(items, hives)}
+      <h3 style="color:var(--honey-400); margin-bottom:0.5rem;">🐝 Acessórios por colmeia</h3>
+      <div class="table-responsive" style="margin-bottom:1.5rem;">
+        ${hives.length === 0 ? '<div style="padding:1rem; color:var(--slate-400);">Nenhuma colmeia cadastrada.</div>' : '<table class="data-table"><thead><tr><th>Colmeia</th><th>Em uso nela</th><th></th></tr></thead><tbody>' + hiveRows + '</tbody></table>'}
+      </div>
+
+      <div style="display:flex; justify-content:space-between; align-items:center; flex-wrap:wrap; gap:0.5rem;">
+        <h3 style="color:var(--honey-400); margin:0;">📋 Itens do estoque</h3>
+        <select id="eq-filter" class="form-control" style="width:auto;"><option value="all">Todas as categorias</option>${cats.map(c => '<option value="' + esc(c) + '"' + (eqFilter === c ? ' selected' : '') + '>' + esc(c) + '</option>').join('')}</select>
+      </div>
+      <div class="table-responsive">
+        ${shown.length === 0 && !unRows ? '<div style="padding:1.5rem; color:var(--slate-400);">Nada cadastrado. Use "+ Cadastrar no estoque" para criar, por exemplo, CX-01 a CX-20.</div>' : '<table class="data-table"><thead><tr><th>Número</th><th>Categoria</th><th>Situação</th><th></th></tr></thead><tbody>' + unRows + rows + '</tbody></table>'}
+      </div>
+    </div>`;
+}
+
+function openEqCatModal(editName) {
+  const items = FinStore.get(EQ_KEY);
+  const hives = ApisStorage.getHives();
+  const roles = getEqRoles();
+  const roleOf = name => Object.keys(roles).find(k => roles[k] === name);
+  const bs = 'padding:0.3rem 0.6rem; font-size:0.75rem;';
+  const editing = typeof editName === 'string' && eqCats().indexOf(editName) > -1;
+  const rows = eqCats().map(c => {
+    const l = items.filter(x => x.cat === c);
+    const u = l.filter(x => x.hiveId && hives.some(h => h.id === x.hiveId)).length;
+    const locked = !!roleOf(c);
+    return '<tr><td><strong>' + esc(c) + '</strong>' + (locked ? '<br><small style="color:var(--slate-400);">🔒 alimenta os campos da colmeia (pode renomear)</small>' : '') + '</td><td>' + (eqIsNumbered(c) ? 'Sim' : 'Não') + '</td><td>' + (eqInHive(c) ? 'Sim' : 'Não') + '</td><td>' + l.length + '</td><td>' + u + '</td><td style="white-space:nowrap;"><button type="button" class="btn btn-secondary ec-edit" data-n="' + esc(c) + '" style="' + bs + '">✏️</button> ' + (locked ? '' : '<button type="button" class="btn btn-danger ec-del" data-n="' + esc(c) + '" style="' + bs + '">🗑️</button>') + '</td></tr>';
+  }).join('');
+  const numV = editing ? eqIsNumbered(editName) : true;
+  const hiveV = editing ? eqInHive(editName) : true;
+  openModal('🏷️ Categorias do estoque', `
+    <div class="table-responsive"><table class="data-table"><thead><tr><th>Categoria</th><th>Enumera</th><th>Na colmeia</th><th>Itens</th><th>Em uso</th><th></th></tr></thead><tbody>${rows}</tbody></table></div>
+    <form id="form-eqcat" class="form-grid" style="margin-top:1rem; border-top:1px solid var(--slate-700); padding-top:1rem;">
+      <div class="form-group" style="grid-column:1 / -1;"><label>${editing ? 'Editando a categoria "' + esc(editName) + '":' : 'Nova categoria:'}</label><input type="text" id="ec-name" class="form-control" value="${editing ? esc(editName) : ''}" placeholder="Ex.: Alimentador, Tampa, Piso" required></div>
+      <div class="form-group" style="grid-column:1 / -1;"><label>Enumerar os itens?</label>
+        <select id="ec-num" class="form-control"><option value="1"${numV ? ' selected' : ''}>Sim — cada item tem um número (ex.: CX-01)</option><option value="0"${numV ? '' : ' selected'}>Não — controlar apenas a quantidade</option></select></div>
+      <div class="form-group" style="grid-column:1 / -1;"><label>Pertence ao uso na colmeia?</label>
+        <select id="ec-hive" class="form-control"${editing && roleOf(editName) ? ' disabled' : ''}><option value="1"${hiveV ? ' selected' : ''}>Sim — aparece no cadastro da colmeia e em ＋ Acessório</option><option value="0"${hiveV ? '' : ' selected'}>Não — só controle de estoque geral</option></select></div>
+      <div style="grid-column:1 / -1; display:flex; justify-content:flex-end; gap:0.75rem; flex-wrap:wrap;">
+        <button type="button" class="btn btn-secondary" id="ec-close">Fechar</button>
+        ${editing ? '<button type="button" class="btn btn-secondary" id="ec-cancel-edit">Cancelar edição</button>' : ''}
+        <button type="submit" class="btn btn-primary">${editing ? 'Salvar alterações' : '+ Adicionar'}</button>
+      </div>
+    </form>`);
+  document.getElementById('ec-close').addEventListener('click', () => { closeModal(); renderApp(); });
+  document.getElementById('ec-cancel-edit')?.addEventListener('click', () => openEqCatModal());
+  document.getElementById('form-eqcat').addEventListener('submit', e => {
+    e.preventDefault();
+    const name = document.getElementById('ec-name').value.trim();
+    const numbered = document.getElementById('ec-num').value === '1';
+    const inHive = document.getElementById('ec-hive').value === '1';
+    if (!name) return;
+    if (eqCats().some(c => c.toLowerCase() === name.toLowerCase() && c !== editName)) { alert('Já existe uma categoria com esse nome.'); return; }
+    const cfg = getEqCfg();
+    if (editing) {
+      if (name !== editName) {
+        const r = getEqRoles();
+        const k = Object.keys(r).find(x => r[x] === editName);
+        if (k) { r[k] = name; localStorage.setItem(EQ_ROLES_KEY, JSON.stringify(r)); loadEqRoles(); }
+        else {
+          const cl = FinStore.get(EQ_CAT_KEY);
+          const rec = cl.find(x => x.name === editName);
+          if (rec) { rec.name = name; FinStore.put(EQ_CAT_KEY, cl); } else FinStore.save(EQ_CAT_KEY, { name }, 'eqc');
+        }
+        const list = FinStore.get(EQ_KEY);
+        list.forEach(x => { if (x.cat === editName) x.cat = name; });
+        FinStore.put(EQ_KEY, list);
+        delete cfg[editName];
+        if (eqFilter === editName) eqFilter = name;
+      }
+    } else {
+      FinStore.save(EQ_CAT_KEY, { name }, 'eqc');
+    }
+    cfg[name] = numbered;
+    setEqCfg(cfg);
+    const hm = getEqHiveCfg();
+    if (editing && name !== editName) delete hm[editName];
+    hm[name] = inHive;
+    setEqHiveCfg(hm);
+    openEqCatModal();
+  });
+  document.querySelectorAll('.ec-edit').forEach(b => b.addEventListener('click', () => openEqCatModal(b.dataset.n)));
+  document.querySelectorAll('.ec-del').forEach(b => b.addEventListener('click', () => {
+    const name = b.dataset.n;
+    const list = FinStore.get(EQ_KEY);
+    const mine = list.filter(x => x.cat === name);
+    if (mine.some(x => x.hiveId && hives.some(h => h.id === x.hiveId))) { alert('Há itens desta categoria em uso em colmeias. Libere-os antes de excluir.'); return; }
+    if (!confirm('Excluir a categoria "' + name + '"' + (mine.length ? ' e seus ' + mine.length + ' item(ns) do estoque' : '') + '?')) return;
+    FinStore.put(EQ_KEY, list.filter(x => x.cat !== name));
+    FinStore.put(EQ_CAT_KEY, FinStore.get(EQ_CAT_KEY).filter(x => x.name !== name));
+    const cfg = getEqCfg(); delete cfg[name]; setEqCfg(cfg);
+    const hmd = getEqHiveCfg(); delete hmd[name]; setEqHiveCfg(hmd);
+    if (eqFilter === name) eqFilter = 'all';
+    openEqCatModal();
+  }));
+}
+
+function openEquipBatchModal(preCat) {
+  const cats = eqCats();
+  const items = FinStore.get(EQ_KEY);
+  const prefOf = c => ({ [BOX_CAT]: 'CX-', [SUPER_CAT]: 'ML-', [COLLECTOR_CAT]: 'MC-', [BIG_CAT]: 'MG-', [NEST_CAT]: 'SN-' }[c] || c.slice(0, 2).toUpperCase() + '-');
+  const nextNum = (c, pre) => items.filter(x => x.cat === c && String(x.number).startsWith(pre)).reduce((m, x) => Math.max(m, parseInt(String(x.number).slice(pre.length), 10) || 0), 0) + 1;
+  openModal('📦 Cadastrar no estoque', `
+    <form id="form-eq" class="form-grid">
+      <div class="form-group"><label>Categoria:</label><select id="eq-cat" class="form-control">${cats.map(c => '<option>' + esc(c) + '</option>').join('')}</select></div>
+      <div class="form-group" id="eq-pre-wrap"><label>Prefixo do número:</label><input type="text" id="eq-pre" class="form-control"></div>
+      <div class="form-group" id="eq-start-wrap"><label>Número inicial:</label><input type="number" id="eq-start" class="form-control" min="0" step="1"></div>
+      <div class="form-group"><label>Quantidade:</label><input type="number" id="eq-qty" class="form-control" min="1" max="500" step="1" value="1"></div>
+      <div style="grid-column:1 / -1; display:flex; justify-content:flex-end; gap:0.75rem; margin-top:0.5rem;">
+        <button type="button" class="btn btn-secondary" id="eq-cancel">Cancelar</button>
+        <button type="submit" class="btn btn-primary">Cadastrar</button>
+      </div>
+    </form>`);
+  const catEl = document.getElementById('eq-cat'), preEl = document.getElementById('eq-pre'), startEl = document.getElementById('eq-start');
+  const fill = () => { const num = eqIsNumbered(catEl.value); document.getElementById('eq-pre-wrap').style.display = num ? '' : 'none'; document.getElementById('eq-start-wrap').style.display = num ? '' : 'none'; preEl.value = prefOf(catEl.value); startEl.value = nextNum(catEl.value, preEl.value); };
+  catEl.addEventListener('change', fill);
+  preEl.addEventListener('change', () => { startEl.value = nextNum(catEl.value, preEl.value); });
+  if (typeof preCat === 'string' && cats.indexOf(preCat) > -1) catEl.value = preCat;
+  fill();
+  document.getElementById('eq-cancel').addEventListener('click', closeModal);
+  document.getElementById('form-eq').addEventListener('submit', e => {
+    e.preventDefault();
+    const list = FinStore.get(EQ_KEY);
+    const cat = catEl.value, pre = preEl.value.trim();
+    const start = parseInt(startEl.value, 10) || 0;
+    const qty = Math.min(500, Math.max(1, parseInt(document.getElementById('eq-qty').value, 10) || 1));
+    let added = 0;
+    const numbered = eqIsNumbered(cat);
+    for (let i = 0; i < qty; i++) {
+      const number = numbered ? pre + String(start + i).padStart(2, '0') : '';
+      if (numbered && list.some(x => x.cat === cat && x.number === number)) continue;
+      list.push({ id: 'eq-' + Date.now() + '-' + i, cat, number, hiveId: '' });
+      added++;
+    }
+    FinStore.put(EQ_KEY, list);
+    closeModal();
+    if (added < qty) alert((qty - added) + ' número(s) já existiam nesta categoria e foram ignorados.');
+    renderApp();
+  });
+}
+
+function openHiveAccessoryModal(hiveId) {
+  const data = ApisStorage.getAll();
+  const hv = data.hives.find(h => h.id === hiveId);
+  if (!hv) return;
+  const items = FinStore.get(EQ_KEY);
+  const cats = eqCats().filter(c => c !== BOX_CAT && eqInHive(c));
+  const holder = x => eqHive(x, data.hives);
+  const free = c => items.filter(x => x.cat === c && !holder(x)).sort(eqSort);
+  if (!cats.length) { alert('Nenhuma categoria está marcada como uso na colmeia. Ajuste em 🏷️ Categorias.'); return; }
+  openModal('＋ Acessório na colmeia ' + esc(hv.code), `
+    <form id="form-acc" class="form-grid">
+      <div class="form-group" style="grid-column:1 / -1;"><label>Categoria:</label>
+        <select id="acc-cat" class="form-control">${cats.map(c => '<option value="' + esc(c) + '">' + esc(c) + ' — ' + free(c).length + ' livre(s) de ' + items.filter(x => x.cat === c).length + '</option>').join('')}</select></div>
+      <div class="form-group" style="grid-column:1 / -1;"><label>Item do estoque:</label>
+        <select id="acc-item" class="form-control"></select>
+        <small id="acc-hint" style="color:var(--slate-400);"></small></div>
+      <div class="form-group"><label>Quantidade:</label><input type="number" id="acc-qty" class="form-control" min="1" step="1" value="1"></div>
+      <div style="grid-column:1 / -1; display:flex; justify-content:flex-end; gap:0.75rem; margin-top:0.5rem;">
+        <button type="button" class="btn btn-secondary" id="acc-cancel">Cancelar</button>
+        <button type="submit" class="btn btn-primary">Colocar na colmeia</button>
+      </div>
+    </form>`);
+  const catEl = document.getElementById('acc-cat'), itemEl = document.getElementById('acc-item'), qtyEl = document.getElementById('acc-qty'), hintEl = document.getElementById('acc-hint');
+  const refresh = () => {
+    const c = catEl.value;
+    const all = items.filter(x => x.cat === c).sort(eqSort);
+    const numbered = all.filter(x => x.number);
+    const fr = free(c);
+    itemEl.innerHTML = '<option value="">Automático — ' + (numbered.length ? 'os menores números livres' : 'unidades livres') + ' (' + fr.length + ' livre(s))</option>' +
+      numbered.map(x => { const hh = holder(x); const ap = hh ? data.apiaries.find(a => a.id === hh.apiaryId) : null; return '<option value="' + x.id + '"' + (hh ? ' disabled' : '') + '>' + esc(x.number) + ' — ' + (hh ? '🔧 em uso na ' + esc(hh.code) + (ap ? ' (' + esc(ap.name) + ')' : '') : '📦 livre no estoque') + '</option>'; }).join('');
+    qtyEl.disabled = false;
+    qtyEl.value = 1;
+    hintEl.textContent = all.length ? 'No estoque: ' + all.length + ' no total · ' + (all.length - fr.length) + ' em uso · ' + fr.length + ' livre(s).' : 'Esta categoria ainda não tem itens no estoque (cadastre na aba 🧰).';
+  };
+  catEl.addEventListener('change', refresh);
+  itemEl.addEventListener('change', () => { if (itemEl.value) { qtyEl.value = 1; qtyEl.disabled = true; } else qtyEl.disabled = false; });
+  refresh();
+  document.getElementById('acc-cancel').addEventListener('click', closeModal);
+  document.getElementById('form-acc').addEventListener('submit', e => {
+    e.preventDefault();
+    let ids;
+    if (itemEl.value) ids = [itemEl.value];
+    else {
+      const avail = free(catEl.value);
+      const qty = parseInt(qtyEl.value, 10) || 0;
+      if (qty < 1 || qty > avail.length) { alert('Quantidade acima do que há livre no estoque (' + avail.length + ').'); return; }
+      ids = avail.slice(0, qty).map(x => x.id);
+    }
+    equipSetHive(ids, hiveId);
+    closeModal();
+    renderApp();
+  });
+}
+
+function bindEquipEvents() {
+  const $ = id => document.getElementById(id);
+  $('btn-eq-batch')?.addEventListener('click', () => openEquipBatchModal());
+  $('btn-eq-cat')?.addEventListener('click', () => openEqCatModal());
+  $('btn-eq-link')?.addEventListener('click', openEqLinkModal);
+  $('eq-filter')?.addEventListener('change', e => { eqFilter = e.target.value; renderApp(); });
+  document.querySelectorAll('.eq-add-acc').forEach(b => b.addEventListener('click', () => openHiveAccessoryModal(b.dataset.id)));
+  document.querySelectorAll('.eq-free').forEach(b => b.addEventListener('click', e => { e.preventDefault(); equipSetHive([b.dataset.id], ''); renderApp(); }));
+  document.querySelectorAll('.eq-populate').forEach(b => b.addEventListener('click', () => {
+    const it = FinStore.get(EQ_KEY).find(x => x.id === b.dataset.id);
+    if (!it) return;
+    const data = ApisStorage.getAll();
+    if (!data.apiaries.length) { alert('Cadastre primeiro um núcleo para receber a colmeia.'); return; }
+    openHiveModal(data, null, { code: it.number, boxId: it.id });
+  }));
+  document.querySelectorAll('.eq-add-qty').forEach(b => b.addEventListener('click', () => openEquipBatchModal(b.dataset.cat)));
+  document.querySelectorAll('.eq-sub-free').forEach(b => b.addEventListener('click', () => {
+    const list = FinStore.get(EQ_KEY);
+    const hv = ApisStorage.getHives();
+    const i = list.findIndex(x => x.cat === b.dataset.cat && !x.number && !(x.hiveId && hv.some(h => h.id === x.hiveId)));
+    if (i === -1) { alert('Não há unidade livre desta categoria para remover.'); return; }
+    list.splice(i, 1);
+    FinStore.put(EQ_KEY, list);
+    renderApp();
+  }));
+  document.querySelectorAll('.eq-del').forEach(b => b.addEventListener('click', () => {
+    if (!confirm('Excluir este item do estoque?')) return;
+    equipSetHive([b.dataset.id], '');
+    FinStore.del(EQ_KEY, b.dataset.id);
+    renderApp();
+  }));
+}
+
 function renderApp() {
   const mainContent = document.getElementById('main-view');
   if (!mainContent) return;
@@ -1796,6 +2299,11 @@ function renderApp() {
   const data = ApisStorage.getAll();
 
   switch (currentTab) {
+    case 'equip':
+      mainContent.innerHTML = renderEquipView(data);
+      bindEquipEvents();
+      break;
+
     case 'planejamento':
       mainContent.innerHTML = renderPlanView(data);
       bindPlanEvents();
@@ -2256,7 +2764,7 @@ function renderDashboardView(data) {
                   👑 ${h.queen?.year || 'N/A'}
                 </span>
               </td>
-              <td>${h.framesBrood} N / ${h.framesHoney} M (${h.supersCount} Melg.)</td>
+              <td>${h.framesBrood} N / ${h.framesHoney} M (${h.supersCount} Melg.${h.supersBig ? ' · ' + h.supersBig + ' Melgueirão' : ''}${h.nestExtenders ? ' · ' + h.nestExtenders + ' Sobreninho' : ''})</td>
               <td>${h.propolisProducer ? `🌿 Sim (${h.propolisCollectors})` : '❌ Não'}</td>
               <td>
                 <span class="status-badge ${h.status === 'Ativa' ? 'status-ativa' : 'status-atencao'}" style="font-size:0.7rem; padding:0.15rem 0.4rem;">
@@ -2673,6 +3181,10 @@ function renderApiariesView(data) {
         '<div class="hive-metrics">' +
           '<div class="hive-metric-item"><span>Quadros Ninho</span><strong>' + hive.framesBrood + ' / 10</strong></div>' +
           '<div class="hive-metric-item"><span>Melgueiras</span><strong>' + hive.supersCount + ' un</strong></div>' +
+          (hive.collectorSupers ? '<div class="hive-metric-item"><span>Melg. c/ coletor</span><strong>' + hive.collectorSupers + ' un</strong></div>' : '') +
+          (hive.supersBig ? '<div class="hive-metric-item"><span>Melgueirões</span><strong>' + hive.supersBig + ' un</strong></div>' : '') +
+          (hive.nestExtenders ? '<div class="hive-metric-item"><span>Sobreninhos</span><strong>' + hive.nestExtenders + ' un</strong></div>' : '') +
+          hiveExtrasHtml(hive) +
           '<div class="hive-metric-item"><span>Mansidão</span><strong>' + '⭐'.repeat(hive.temperament) + '</strong></div>' +
           '<div class="hive-metric-item"><span>Saúde</span><strong style="color:' + (hive.healthScore > 80 ? 'var(--emerald-500)' : 'var(--rose-500)') + ';">' + hive.healthScore + '%</strong></div>' +
         '</div>' +
@@ -3553,8 +4065,16 @@ function openHiveModal(data = ApisStorage.getAll(), existingHive = null, draft =
     return `<option value="${model}" ${selected}>${model}</option>`;
   }).join('');
 
+  const hiveEqId = isEdit ? h.id : null;
+  const eqBoxes = FinStore.get('apisapp_equip').filter(x => x.cat === BOX_CAT && ((hiveEqId && x.hiveId === hiveEqId) || !data.hives.some(hv => hv.id === x.hiveId))).sort((a, b) => String(a.number).localeCompare(String(b.number), undefined, { numeric: true }));
+  const boxSelectHtml = '<div class="form-group" style="grid-column:1 / -1;"><label>Caixa do estoque:</label><select id="hv-box" class="form-control"><option value="">— Sem caixa do estoque (digitar o código) —</option>' +
+    eqBoxes.map(b => '<option value="' + b.id + '" data-num="' + esc(b.number) + '"' + ((h.boxId === b.id || (isEdit && b.hiveId === h.id)) ? ' selected' : '') + '>' + esc(b.number) + (isEdit && b.hiveId === h.id ? ' (atual)' : '') + '</option>').join('') +
+    '</select><small style="color:var(--slate-400);">' + (eqBoxes.length ? 'Ao salvar, a caixa fica marcada como povoada por esta colmeia.' : 'Nenhuma caixa vazia no estoque (cadastre na aba 🧰 Caixas & Equip.).') + '</small>' +
+    '<div id="hv-num-info" style="margin-top:0.4rem; font-size:0.8rem; color:var(--slate-400); line-height:1.5;"></div></div>';
+
   const html = `
     <form id="form-edit-hive" class="form-grid">
+      ${boxSelectHtml}
       <div class="form-group">
         <label>Código da Colmeia:</label>
         <input type="text" id="hv-code" class="form-control" value="${h.code || 'CX-' + (data.hives.length + 1)}" required>
@@ -3596,8 +4116,16 @@ function openHiveModal(data = ApisStorage.getAll(), existingHive = null, draft =
         <input type="number" id="hv-framesHoney" class="form-control" min="0" max="10" value="${h.framesHoney || 3}">
       </div>
       <div class="form-group">
-        <label>Quantidade de Melgueiras:</label>
+        <label>Quantidade de Melgueiras (total, incluindo as com coletor):</label>
         <input type="number" id="hv-supersCount" class="form-control" min="0" max="10" value="${h.supersCount || 0}">
+      </div>
+      <div class="form-group">
+        <label>Quantidade de Melgueirões:</label>
+        <input type="number" id="hv-supersBig" class="form-control" min="0" max="10" value="${h.supersBig || 0}">
+      </div>
+      <div class="form-group">
+        <label>Quantidade de Sobreninhos:</label>
+        <input type="number" id="hv-nestExtenders" class="form-control" min="0" max="10" value="${h.nestExtenders || 0}">
       </div>
       <div class="form-group">
         <label>Produtora de Própolis?</label>
@@ -3606,10 +4134,24 @@ function openHiveModal(data = ApisStorage.getAll(), existingHive = null, draft =
           <option value="true" ${h.propolisProducer === true ? 'selected' : ''}>Sim</option>
         </select>
       </div>
-      <div class="form-group">
+      <div class="form-group" id="hv-coll-wrap" style="${h.propolisProducer === true ? '' : 'display:none;'}">
         <label>Quantidade de Coletores:</label>
         <input type="number" id="hv-propolisCollectors" class="form-control" min="0" max="10" value="${h.propolisCollectors || 0}">
       </div>
+      <div class="form-group" id="hv-collsup-wrap" style="${h.propolisProducer === true ? '' : 'display:none;'}">
+        <label>Quantas melgueiras com coletor?</label>
+        <input type="number" id="hv-collectorSupers" class="form-control" min="0" max="10" value="${h.collectorSupers || 0}">
+      </div>
+      <div style="grid-column:1 / -1;">
+        <label style="font-weight:600;">Outros equipamentos desta colmeia (cavalete, suporte de óleo, telha de cobertura...):</label>
+        <div id="hv-extra-rows" style="display:grid; grid-template-columns:repeat(auto-fit, minmax(220px, 1fr)); gap:0.5rem; margin-top:0.4rem;"></div>
+        <div style="display:flex; gap:0.4rem; flex-wrap:wrap; margin-top:0.6rem; align-items:center;">
+          <input type="text" id="hv-newcat-name" class="form-control" placeholder="Nova categoria (ex.: Cavalete com suporte de óleo)" style="flex:1; min-width:200px;">
+          <select id="hv-newcat-num" class="form-control" style="width:auto;"><option value="0">Sem numeração</option><option value="1">Numerada</option></select>
+          <button type="button" class="btn btn-secondary" id="btn-hv-newcat">+ Categoria</button>
+        </div>
+      </div>
+      <div id="hv-eq-hints" style="grid-column:1 / -1; font-size:0.8rem; color:var(--slate-400); background:rgba(15,23,42,0.5); padding:0.6rem 0.8rem; border-radius:10px; line-height:1.6;"></div>
       <div class="form-group">
         <label>Nível de Mansidão (1 a 5):</label>
         <input type="number" id="hv-temperament" class="form-control" min="1" max="5" value="${h.temperament || 4}">
@@ -3635,7 +4177,132 @@ function openHiveModal(data = ApisStorage.getAll(), existingHive = null, draft =
   openModal(isEdit ? `✏️ Editar Colmeia: ${h.code}` : '📦 Cadastrar Nova Colmeia', html);
 
   document.getElementById('btn-cancelar-colmeia').addEventListener('click', closeModal);
+  const boxSel = document.getElementById('hv-box');
+  if (boxSel) boxSel.addEventListener('change', () => { const o = boxSel.selectedOptions[0]; if (o && o.dataset.num) { document.getElementById('hv-code').value = o.dataset.num; updateNumInfo(); } });
   
+  const prodSel = document.getElementById('hv-propolisProducer');
+  const codeEl = document.getElementById('hv-code');
+  const numInfoEl = document.getElementById('hv-num-info');
+  const hintsEl = document.getElementById('hv-eq-hints');
+  const intVal = id => parseInt(document.getElementById(id).value, 10) || 0;
+  const colInit = h.propolisProducer === true ? (parseInt(h.collectorSupers, 10) || 0) : 0;
+  const initEq = { [SUPER_CAT]: Math.max(0, Math.max(parseInt(h.supersCount, 10) || 0, colInit) - colInit), [COLLECTOR_CAT]: colInit, [BIG_CAT]: parseInt(h.supersBig, 10) || 0, [NEST_CAT]: parseInt(h.nestExtenders, 10) || 0 };
+  const desiredEq = () => {
+    const col = prodSel.value === 'true' ? intVal('hv-collectorSupers') : 0;
+    const total = Math.max(intVal('hv-supersCount'), col);
+    const d = { [SUPER_CAT]: total - col, [COLLECTOR_CAT]: col, [BIG_CAT]: intVal('hv-supersBig'), [NEST_CAT]: intVal('hv-nestExtenders') };
+    document.querySelectorAll('.hv-x-input').forEach(i => { d[i.dataset.cat] = parseInt(i.value, 10) || 0; });
+    return d;
+  };
+  const eqChanged = () => { const d = desiredEq(), o = {}; Object.keys(d).forEach(c => { if (d[c] !== initEq[c]) o[c] = d[c]; }); return o; };
+  const refreshEqHints = () => {
+    const plan = equipPlan(isEdit ? h.id : null, eqChanged(), preferred);
+    const lines = Object.keys(initEq).map(cat => {
+      const pv = plan.preview[cat];
+      if (pv === undefined) return '• ' + esc(cat) + ': sem alteração';
+      if (pv === null) return '• ' + esc(cat) + ': sem itens no estoque (vale o número digitado)';
+      return '• ' + esc(cat) + ': ' + pv.free + ' livre(s)' + (pv.mine.length ? ' · na colmeia: ' + pv.mine.map(esc).join(', ') : '') + (pv.add.length ? ' · <span style="color:var(--emerald-500);">entram: ' + pv.add.map(esc).join(', ') + '</span>' : '') + (pv.remove.length ? ' · <span style="color:var(--rose-500);">voltam: ' + pv.remove.map(esc).join(', ') + '</span>' : '');
+    });
+    if (plan.errors.length) lines.push('<span style="color:var(--rose-500);">⚠️ ' + plan.errors.map(esc).join(' ') + '</span>');
+    hintsEl.innerHTML = '<strong>📦 Do estoque:</strong><br>' + lines.join('<br>');
+  };
+  const updateNumInfo = () => {
+    const m = String(codeEl.value).match(/^(.*?)(\d+)$/);
+    const prefix = m ? m[1] : 'CX-';
+    const info = eqNumberInfo(prefix, data.hives.filter(x => !isEdit || x.id !== h.id), FinStore.get('apisapp_equip').filter(x => x.cat === BOX_CAT));
+    const fmt = n => prefix + String(n).padStart(2, '0');
+    numInfoEl.innerHTML = '🔢 <strong>Numeração ' + esc(prefix) + '</strong> — maior em colmeias: ' + (info.maxUsed ? fmt(info.maxUsed) : '—') + ' · maior cadastrado: ' + (info.max ? fmt(info.max) : '—') + ' · <strong>próximo: ' + fmt(info.next) + '</strong> <button type="button" id="btn-use-next" class="btn btn-secondary" style="padding:0.15rem 0.5rem; font-size:0.72rem;">Usar</button><br>Números sem uso no intervalo: ' + (info.gaps.length ? info.gaps.slice(0, 20).map(fmt).join(', ') + (info.gaps.length > 20 ? ' … +' + (info.gaps.length - 20) : '') : 'nenhum');
+    document.getElementById('btn-use-next').addEventListener('click', () => { codeEl.value = fmt(info.next); updateNumInfo(); });
+  };
+  codeEl.addEventListener('input', updateNumInfo);
+  prodSel.addEventListener('change', () => {
+    const on = prodSel.value === 'true';
+    document.getElementById('hv-collsup-wrap').style.display = on ? '' : 'none';
+    document.getElementById('hv-coll-wrap').style.display = on ? '' : 'none';
+    refreshEqHints();
+  });
+  ['hv-supersCount', 'hv-supersBig', 'hv-nestExtenders', 'hv-collectorSupers'].forEach(id => document.getElementById(id).addEventListener('input', refreshEqHints));
+  const roleNames = [BOX_CAT, SUPER_CAT, COLLECTOR_CAT, BIG_CAT, NEST_CAT];
+  const extraRowsEl = document.getElementById('hv-extra-rows');
+  const holderOf = x => x.hiveId ? data.hives.find(hv => hv.id === x.hiveId) : null;
+  const preferred = {};
+  const renderPick = (cat, block) => {
+    const stock = FinStore.get('apisapp_equip').filter(x => x.cat === cat).sort(eqSort);
+    const sel = block.querySelector('.hv-x-pick');
+    const pref = preferred[cat] || (preferred[cat] = []);
+    if (sel) {
+      sel.innerHTML = '<option value="">Escolher item do estoque…</option>' + stock.filter(x => x.number).map(x => {
+        const hh = holderOf(x);
+        const mine = isEdit && hh && hh.id === h.id;
+        const chosen = pref.indexOf(x.id) > -1;
+        const ap = hh ? data.apiaries.find(a => a.id === hh.apiaryId) : null;
+        const txt = mine ? '✅ já nesta colmeia' : chosen ? '☑️ selecionado' : hh ? '🔧 em uso na ' + esc(hh.code) + (ap ? ' (' + esc(ap.name) + ')' : '') : '📦 livre no estoque';
+        return '<option value="' + x.id + '"' + (mine || chosen || hh ? ' disabled' : '') + '>' + esc(x.number) + ' — ' + txt + '</option>';
+      }).join('');
+    }
+    block.querySelector('.hv-x-chips').innerHTML = pref.map(id => { const it = stock.find(x => x.id === id); return it ? '<span class="tag-badge" style="margin:0.1rem;">' + esc(it.number) + ' <a href="#" class="hv-x-del" data-id="' + id + '" style="color:var(--rose-500); text-decoration:none;">✕</a></span>' : ''; }).join('');
+    block.querySelector('.hv-x-info').textContent = stock.length ? 'Estoque: ' + stock.length + ' no total · ' + stock.filter(x => !holderOf(x)).length + ' livre(s)' : 'Sem itens no estoque (vale o número digitado)';
+  };
+  const addExtraRow = cat => {
+    if (Array.from(extraRowsEl.querySelectorAll('.hv-x-input')).some(i => i.dataset.cat === cat)) return;
+    const stock = FinStore.get('apisapp_equip');
+    const tracked = stock.some(x => x.cat === cat);
+    const attached = isEdit ? stock.filter(x => x.cat === cat && x.hiveId === h.id).length : 0;
+    const val = tracked ? attached : ((h.extras && h.extras[cat]) || 0);
+    initEq[cat] = val;
+    extraRowsEl.insertAdjacentHTML('beforeend', '<div class="form-group hv-x-block" style="margin:0; grid-column:1 / -1;"><label>' + esc(cat) + ':</label>' +
+      '<div style="display:flex; gap:0.4rem; flex-wrap:wrap;"><input type="number" class="form-control hv-x-input" data-cat="' + esc(cat) + '" min="0" max="50" value="' + val + '" style="width:90px;" title="Quantidade">' +
+      (stock.some(x => x.cat === cat && x.number) ? '<select class="form-control hv-x-pick" style="flex:1; min-width:200px;"></select>' : '') + '</div>' +
+      '<div class="hv-x-chips"></div><small class="hv-x-info" style="color:var(--slate-400);"></small></div>');
+    const block = extraRowsEl.lastElementChild;
+    const input = block.querySelector('.hv-x-input');
+    input.addEventListener('input', refreshEqHints);
+    const pick = block.querySelector('.hv-x-pick');
+    if (pick) pick.addEventListener('change', () => {
+      if (!pick.value) return;
+      (preferred[cat] = preferred[cat] || []).push(pick.value);
+      input.value = (parseInt(input.value, 10) || 0) + 1;
+      renderPick(cat, block);
+      refreshEqHints();
+    });
+    block.addEventListener('click', e => {
+      const del = e.target.closest('.hv-x-del');
+      if (!del) return;
+      e.preventDefault();
+      preferred[cat] = (preferred[cat] || []).filter(id => id !== del.dataset.id);
+      input.value = Math.max(0, (parseInt(input.value, 10) || 0) - 1);
+      renderPick(cat, block);
+      refreshEqHints();
+    });
+    renderPick(cat, block);
+  };
+  eqCats().filter(c => roleNames.indexOf(c) === -1 && eqInHive(c)).forEach(addExtraRow);
+  const collectExtras = () => {
+    const out = {};
+    const stock = FinStore.get('apisapp_equip');
+    document.querySelectorAll('.hv-x-input').forEach(i => {
+      const v = parseInt(i.value, 10) || 0;
+      if (v > 0 && !stock.some(x => x.cat === i.dataset.cat)) out[i.dataset.cat] = v;
+    });
+    return out;
+  };
+  document.getElementById('btn-hv-newcat').addEventListener('click', () => {
+    const nameEl = document.getElementById('hv-newcat-name');
+    const name = nameEl.value.trim();
+    if (!name) return;
+    if (eqCats().some(c => c.toLowerCase() === name.toLowerCase())) { alert('Já existe uma categoria com esse nome.'); return; }
+    FinStore.save(EQ_CAT_KEY, { name }, 'eqc');
+    const cfg = getEqCfg();
+    cfg[name] = document.getElementById('hv-newcat-num').value === '1';
+    setEqCfg(cfg);
+    const hmx = getEqHiveCfg(); hmx[name] = true; setEqHiveCfg(hmx);
+    nameEl.value = '';
+    addExtraRow(name);
+    refreshEqHints();
+  });
+  updateNumInfo();
+  refreshEqHints();
+
   document.getElementById('btn-manage-models').addEventListener('click', () => {
     const val = (id) => document.getElementById(id)?.value;
     const num = (id) => { const n = parseInt(val(id), 10); return Number.isFinite(n) ? n : undefined; };
@@ -3649,6 +4316,9 @@ function openHiveModal(data = ApisStorage.getAll(), existingHive = null, draft =
       framesBrood: num('hv-framesBrood'),
       framesHoney: num('hv-framesHoney'),
       supersCount: num('hv-supersCount'),
+      supersBig: num('hv-supersBig'),
+      nestExtenders: num('hv-nestExtenders'),
+      collectorSupers: num('hv-collectorSupers'),
       propolisProducer: val('hv-propolisProducer') === 'true',
       propolisCollectors: num('hv-propolisCollectors'),
       temperament: num('hv-temperament'),
@@ -3674,8 +4344,12 @@ function openHiveModal(data = ApisStorage.getAll(), existingHive = null, draft =
       framesBrood: parseInt(document.getElementById('hv-framesBrood').value, 10) || 0,
       framesHoney: parseInt(document.getElementById('hv-framesHoney').value, 10) || 0,
       supersCount: parseInt(document.getElementById('hv-supersCount').value, 10) || 0,
+      supersBig: parseInt(document.getElementById('hv-supersBig').value, 10) || 0,
+      extras: collectExtras(),
+      nestExtenders: parseInt(document.getElementById('hv-nestExtenders').value, 10) || 0,
+      collectorSupers: document.getElementById('hv-propolisProducer').value === 'true' ? (parseInt(document.getElementById('hv-collectorSupers').value, 10) || 0) : 0,
       propolisProducer: document.getElementById('hv-propolisProducer').value === 'true',
-      propolisCollectors: parseInt(document.getElementById('hv-propolisCollectors').value, 10) || 0,
+      propolisCollectors: document.getElementById('hv-propolisProducer').value === 'true' ? (parseInt(document.getElementById('hv-propolisCollectors').value, 10) || 0) : 0,
       temperament: parseInt(document.getElementById('hv-temperament').value, 10) || 4,
       healthScore: parseInt(document.getElementById('hv-healthScore').value, 10) || 100,
       status: document.getElementById('hv-status').value,
@@ -3689,7 +4363,20 @@ function openHiveModal(data = ApisStorage.getAll(), existingHive = null, draft =
       }
     };
 
+    if (hiveData.collectorSupers > hiveData.supersCount) hiveData.supersCount = hiveData.collectorSupers;
+    const eqPlan = equipPlan(isEdit ? h.id : null, eqChanged(), preferred);
+    if (eqPlan.errors.length) { alert(eqPlan.errors.join('\n')); return; }
     ApisStorage.saveHive(hiveData);
+    const bxSel = document.getElementById('hv-box');
+    if (bxSel) {
+      const prevBox = FinStore.get('apisapp_equip').find(x => x.cat === BOX_CAT && x.hiveId === hiveData.id);
+      if ((prevBox ? prevBox.id : '') !== bxSel.value) {
+        if (prevBox) equipSetHive([prevBox.id], '');
+        if (bxSel.value) equipSetHive([bxSel.value], hiveData.id);
+      }
+    }
+    if (eqPlan.release.length) equipSetHive(eqPlan.release, '');
+    if (eqPlan.assign.length) equipSetHive(eqPlan.assign, hiveData.id);
     closeModal();
     renderApp();
   });
