@@ -1,5 +1,5 @@
 /**
- * ApisApp Pro v1.18.0 - Código Unificado Standalone
+ * ApisApp Pro v1.19.0 - Código Unificado Standalone
  * Gestão de Apicultura (Apis mellifera)
  * Suporte a execução por duplo clique (file://) e por servidor local (http://)
  * Compatível com múltiplos serviços de armazenamento gratuito na nuvem (Drive, OneDrive, MEGA, Dropbox, iCloud)
@@ -280,7 +280,7 @@ const ApisStorage = {
   getFullBackup() {
     return Object.assign({}, this.getAll(), {
       _apisapp_backup: true,
-      version: '1.18.0',
+      version: '1.19.0',
       exportedAt: new Date().toISOString(),
       apicultorInfo: JSON.parse(localStorage.getItem(STORAGE_KEYS.APICULTOR_INFO) || 'null'),
       settings: JSON.parse(localStorage.getItem(STORAGE_KEYS.SETTINGS) || 'null'),
@@ -1651,7 +1651,7 @@ function bindHiveCardEvents() {
 }
 
 // ==========================================================================
-// 6. PLANEJAMENTO: PRECIFICAÇÃO, METAS, CAIXA, RECORRÊNCIA, DOCUMENTOS, CSV (v1.18.0)
+// 6. PLANEJAMENTO: PRECIFICAÇÃO, METAS, CAIXA, RECORRÊNCIA, DOCUMENTOS, CSV (v1.19.0)
 // ==========================================================================
 
 const REC_KEY = 'apisapp_recur';
@@ -1806,7 +1806,7 @@ function bindPlanEvents() {
 }
 
 // ==========================================================================
-// 7. ESTOQUE DE CAIXAS E EQUIPAMENTOS (caixas vazias, melgueiras, coletores...) (v1.18.0)
+// 7. ESTOQUE DE CAIXAS E EQUIPAMENTOS (caixas vazias, melgueiras, coletores...) (v1.19.0)
 // ==========================================================================
 
 const EQ_KEY = 'apisapp_equip';
@@ -2297,13 +2297,13 @@ function bindEquipEvents() {
 }
 
 // ==========================================================================
-// 8. CAIXAS ISCAS: LOCALIZAÇÃO POR GPS, RADAR E BÚSSOLA OFFLINE (v1.18.0)
+// 8. CAIXAS ISCAS: LOCALIZAÇÃO POR GPS, RADAR E BÚSSOLA OFFLINE (v1.19.0)
 // ==========================================================================
 
 const BAIT_KEY = 'apisapp_baits';
 const baitBoxIds = () => new Set(FinStore.get(BAIT_KEY).filter(b => b.status === 'ativa').map(b => b.boxId));
 let baitView = 'list';
-const baitState = { me: null, prev: null, heading: null, headingSrc: '', target: '', watchId: null, compassOn: false, lastDraw: 0, near: false };
+const baitState = { me: null, prev: null, heading: null, headingSrc: '', target: '', watchId: null, compassOn: false, lastDraw: 0, near: false, zoom: 1, center: 'me', fit: false };
 
 const toRad = d => d * Math.PI / 180;
 function geoDist(a, b) {
@@ -2371,7 +2371,15 @@ function renderBaitView(data) {
           <button class="btn btn-secondary" id="btn-compass" style="margin-top:0.5rem; font-size:0.8rem;">🧭 Ativar bússola</button>
         </div>
         <div style="background:rgba(15,23,42,0.6); padding:1rem; border-radius:12px; border:1px solid var(--slate-700);">
-          <svg id="radar-map" viewBox="0 0 300 300" style="width:100%; max-width:420px; display:block; margin:0 auto;"><g id="radar-rings"></g><g id="radar-dots"></g><g id="radar-me" transform="translate(150,150)"><path d="M0,-14 L8,8 L0,3 L-8,8 Z" fill="#38bdf8" stroke="#fff" stroke-width="1"/></g></svg>
+          <svg id="radar-map" viewBox="0 0 300 300" style="width:100%; max-width:420px; display:block; margin:0 auto; touch-action:pan-y;"><g id="radar-rings"></g><g id="radar-dots"></g><g id="radar-me" transform="translate(150,150)"><path d="M0,-14 L8,8 L0,3 L-8,8 Z" fill="#38bdf8" stroke="#fff" stroke-width="1"/></g></svg>
+          <div style="display:flex; gap:0.4rem; justify-content:center; flex-wrap:wrap; margin-top:0.5rem;">
+            <button class="btn btn-secondary rz" data-a="out" style="padding:0.3rem 0.7rem;">－</button>
+            <button class="btn btn-primary rz" data-a="in" style="padding:0.3rem 0.7rem;">＋ Ampliar</button>
+            <button class="btn btn-secondary rz" data-a="fit" style="padding:0.3rem 0.7rem;">Ajustar a todas</button>
+            <button class="btn btn-secondary rz" data-a="center" style="padding:0.3rem 0.7rem;">Centro: ${baitState.center === 'me' ? 'eu' : 'caixa'}</button>
+            <button class="btn btn-secondary rz" data-a="full" style="padding:0.3rem 0.7rem;">⛶ Tela cheia</button>
+          </div>
+          <div id="radar-zoom" style="text-align:center; font-size:0.75rem; color:var(--slate-400); margin-top:0.3rem;"></div>
           <div id="radar-legend" style="font-size:0.8rem; color:var(--slate-400); margin-top:0.5rem;"></div>
         </div>
       </div>
@@ -2396,6 +2404,69 @@ function renderBaitView(data) {
   </div>`;
 }
 
+let gpsJob = null;
+const gpsStop = () => { if (gpsJob) gpsJob.stop(); };
+function gpsBest(btn, statusEl, onFill) {
+  if (gpsJob) { gpsJob.finish(); return; }
+  if (!navigator.geolocation) { statusEl.textContent = 'Este aparelho/navegador não oferece GPS.'; return; }
+  const reads = [];
+  const t0 = Date.now();
+  let wid = null, timer = null;
+  const label = btn.textContent;
+  const best = () => reads.reduce((m, r) => (m === null || r.acc < m.acc) ? r : m, null);
+  const stop = () => { if (wid !== null) navigator.geolocation.clearWatch(wid); clearTimeout(timer); wid = null; gpsJob = null; btn.textContent = label; };
+  const finish = () => {
+    stop();
+    const b = best();
+    if (!b) { statusEl.textContent = '⚠️ Nenhuma leitura recebida. Vá para céu aberto e tente de novo.'; return; }
+    const use = reads.filter(r => r.acc <= Math.max(b.acc * 1.5, b.acc + 2));
+    const w = use.map(r => 1 / (r.acc * r.acc));
+    const sw = w.reduce((a, x) => a + x, 0);
+    const lat = use.reduce((a, r, i) => a + r.lat * w[i], 0) / sw;
+    const lon = use.reduce((a, r, i) => a + r.lon * w[i], 0) / sw;
+    onFill(lat, lon, b.acc, use.length);
+    statusEl.textContent = '✅ Local capturado: precisão ±' + Math.round(b.acc) + ' m (média de ' + use.length + ' leituras)';
+  };
+  gpsJob = { finish, stop };
+  btn.textContent = '⏹ Parar e usar a melhor leitura';
+  wid = navigator.geolocation.watchPosition(p => {
+    reads.push({ lat: p.coords.latitude, lon: p.coords.longitude, acc: p.coords.accuracy || 999 });
+    const b = best();
+    statusEl.textContent = '⏳ ' + reads.length + ' leituras · melhor precisão ±' + Math.round(b.acc) + ' m (meta ±5 m) · ' + Math.round((Date.now() - t0) / 1000) + ' s — fique parado, a céu aberto';
+    if (b.acc <= 5 && reads.length >= 6) finish();
+  }, err => {
+    stop();
+    statusEl.textContent = '⚠️ ' + ({ 1: 'Permissão negada — libere a localização no navegador.', 2: 'Sem sinal de GPS.', 3: 'Tempo esgotado — tente de novo a céu aberto.' }[err.code] || 'Erro de GPS.');
+  }, { enableHighAccuracy: true, maximumAge: 0, timeout: 40000 });
+  timer = setTimeout(finish, 90000);
+}
+
+function openGpsUpdateModal(id) {
+  const b = FinStore.get(BAIT_KEY).find(x => x.id === id);
+  if (!b) return;
+  openModal('📍 Atualizar localização — ' + esc(b.number), `
+    <p style="color:var(--slate-400); font-size:0.9rem;">Fique ao lado da caixa, a céu aberto e parado. O app faz várias leituras (até 90 s) e calcula a média ponderada pela precisão.</p>
+    <div style="font-size:0.85rem;">Atual: ${b.lat.toFixed(6)}, ${b.lon.toFixed(6)}${b.acc ? ' (±' + b.acc + ' m)' : ''}</div>
+    <div id="gu-status" style="font-size:0.85rem; color:var(--slate-400); margin:0.6rem 0;"></div>
+    <div style="display:flex; gap:0.6rem; flex-wrap:wrap; justify-content:flex-end;">
+      <button type="button" class="btn btn-secondary" id="gu-cancel">Cancelar</button>
+      <button type="button" class="btn btn-primary" id="gu-start">📍 Capturar (alta precisão)</button>
+      <button type="button" class="btn btn-primary" id="gu-save" disabled>Salvar</button>
+    </div>`);
+  let got = null;
+  const saveBtn = document.getElementById('gu-save');
+  document.getElementById('gu-cancel').addEventListener('click', () => { gpsStop(); closeModal(); });
+  document.getElementById('gu-start').addEventListener('click', e => gpsBest(e.target, document.getElementById('gu-status'), (la, lo, ac) => { got = { la, lo, ac }; saveBtn.disabled = false; }));
+  saveBtn.addEventListener('click', () => {
+    if (!got) return;
+    const l = FinStore.get(BAIT_KEY);
+    const x = l.find(y => y.id === id);
+    if (x) { x.lat = got.la; x.lon = got.lo; x.acc = Math.round(got.ac); FinStore.put(BAIT_KEY, l); }
+    closeModal();
+    renderApp();
+  });
+}
+
 // ---------- cadastro de caixa isca ----------
 function openBaitModal() {
   const boxes = baitFreeBoxes();
@@ -2407,8 +2478,8 @@ function openBaitModal() {
       <div class="form-group"><label>Data:</label><input type="date" id="bt-date" class="form-control" value="${todayISO()}" required></div>
       <div class="form-group"><label>Observação:</label><input type="text" id="bt-note" class="form-control" placeholder="Altura, isca usada, referência..."></div>
       <div style="grid-column:1 / -1;">
-        <button type="button" class="btn btn-primary" id="bt-capture">📍 Capturar minha localização (GPS)</button>
-        <div id="bt-status" style="font-size:0.85rem; color:var(--slate-400); margin-top:0.3rem;">Fique ao lado da caixa, a céu aberto, e aguarde a precisão melhorar.</div>
+        <button type="button" class="btn btn-primary" id="bt-capture">📍 Capturar localização (alta precisão)</button>
+        <div id="bt-status" style="font-size:0.85rem; color:var(--slate-400); margin-top:0.3rem;">Fique ao lado da caixa, parado e a céu aberto. O app faz várias leituras (até 90 s) e usa a média das melhores.</div>
       </div>
       <div class="form-group"><label>Latitude:</label><input type="text" id="bt-lat" class="form-control" placeholder="-5.123456" required></div>
       <div class="form-group"><label>Longitude:</label><input type="text" id="bt-lon" class="form-control" placeholder="-38.123456" required></div>
@@ -2418,14 +2489,14 @@ function openBaitModal() {
         <button type="submit" class="btn btn-primary">Salvar caixa isca</button>
       </div>
     </form>`);
-  document.getElementById('bt-cancel').addEventListener('click', closeModal);
-  document.getElementById('bt-capture').addEventListener('click', () => gpsCapture((la, lo, ac) => {
-    document.getElementById('bt-lat').value = la.toFixed(6);
-    document.getElementById('bt-lon').value = lo.toFixed(6);
-    document.getElementById('bt-acc').value = Math.round(ac);
-  }, t => { document.getElementById('bt-status').textContent = t; }));
+  document.getElementById('bt-cancel').addEventListener('click', () => { gpsStop(); closeModal(); });
+  document.getElementById('bt-capture').addEventListener('click', e => gpsBest(e.target, document.getElementById('bt-status'), (la, lo, ac) => {
+    const set = (id, v) => { const el = document.getElementById(id); if (el) el.value = v; };
+    set('bt-lat', la.toFixed(6)); set('bt-lon', lo.toFixed(6)); set('bt-acc', Math.round(ac));
+  }));
   document.getElementById('form-bait').addEventListener('submit', e => {
     e.preventDefault();
+    gpsStop();
     const lat = parseFloat(document.getElementById('bt-lat').value.replace(',', '.'));
     const lon = parseFloat(document.getElementById('bt-lon').value.replace(',', '.'));
     if (isNaN(lat) || isNaN(lon) || Math.abs(lat) > 90 || Math.abs(lon) > 180) { alert('Latitude/longitude inválidas. Use graus decimais, por exemplo -5.123456.'); return; }
@@ -2514,21 +2585,36 @@ function updateRadar(force) {
   const baits = FinStore.get(BAIT_KEY).filter(b => b.status === 'ativa' && typeof b.lat === 'number');
   if (!st.me) { info.innerHTML = '⏳ Aguardando sinal de GPS… vá para céu aberto.'; return; }
   const me = st.me;
-  const pts = baits.map(b => ({ b, dx: (b.lon - me.lon) * Math.cos(toRad(me.lat)) * 111320, dy: (b.lat - me.lat) * 110540, d: geoDist(me, b), brg: geoBearing(me, b) })).sort((a, b) => a.d - b.d);
+  const pts = baits.map(b => ({ b, d: geoDist(me, b), brg: geoBearing(me, b) })).sort((a, b) => a.d - b.d);
   let tgt = pts.find(p => p.b.id === st.target) || null;
   if (!tgt && pts.length) { tgt = pts[0]; st.target = tgt.b.id; const sel = document.getElementById('radar-target'); if (sel) sel.value = st.target; }
-  const maxD = Math.max(60, tgt ? tgt.d : (pts.length ? pts[pts.length - 1].d : 60)) * 1.2;
+  const O = (st.center === 'target' && tgt) ? tgt.b : me;
+  const rel = p => ({ dx: (p.lon - O.lon) * Math.cos(toRad(O.lat)) * 111320, dy: (p.lat - O.lat) * 110540 });
+  const baseMax = Math.max(60, tgt ? tgt.d : (pts.length ? pts[pts.length - 1].d : 60)) * 1.2;
+  if (st.fit) {
+    const far = Math.max(60, Math.hypot(rel(me).dx, rel(me).dy), ...pts.map(p => Math.hypot(rel(p.b).dx, rel(p.b).dy))) * 1.2;
+    st.zoom = Math.max(0.1, Math.min(256, baseMax / far));
+    st.fit = false;
+  }
+  const maxD = baseMax / st.zoom;
   const sc = 120 / maxD;
+  const place = o => { const r = Math.hypot(o.dx, o.dy) * sc, k = r > 135 ? 135 / r : 1; return { x: 150 + o.dx * sc * k, y: 150 - o.dy * sc * k, k }; };
   let rings = '';
   [1 / 3, 2 / 3, 1].forEach(k => { rings += '<circle cx="150" cy="150" r="' + (120 * k) + '" fill="none" stroke="#475569" stroke-dasharray="3 3"/><text x="153" y="' + (150 - 120 * k + 11) + '" fill="#94a3b8" font-size="9">' + fmtDist(maxD * k) + '</text>'; });
   rings += '<text x="146" y="14" fill="#f59e0b" font-size="12" font-weight="700">N</text>';
   document.getElementById('radar-rings').innerHTML = rings;
+  const meP = place(rel(me));
+  const placed = [];
   document.getElementById('radar-dots').innerHTML = pts.map(p => {
-    const r = Math.hypot(p.dx, p.dy) * sc, k = r > 135 ? 135 / r : 1;
-    const x = 150 + p.dx * sc * k, y = 150 - p.dy * sc * k, isT = tgt && p.b.id === tgt.b.id;
-    return (isT ? '<line x1="150" y1="150" x2="' + x + '" y2="' + y + '" stroke="#f59e0b" stroke-dasharray="4 3"/>' : '') + '<circle cx="' + x + '" cy="' + y + '" r="' + (isT ? 8 : 5) + '" fill="' + (isT ? '#f59e0b' : '#10b981') + '"' + (k < 1 ? ' fill-opacity="0.4"' : '') + '/><text x="' + (x + 9) + '" y="' + (y + 4) + '" fill="#e2e8f0" font-size="10">' + esc(p.b.number) + '</text>';
+    const q = place(rel(p.b));
+    const near = placed.filter(o => Math.hypot(o.x - q.x, o.y - q.y) < 14).length;
+    placed.push(q);
+    const isT = tgt && p.b.id === tgt.b.id;
+    return (isT ? '<line x1="' + meP.x + '" y1="' + meP.y + '" x2="' + q.x + '" y2="' + q.y + '" stroke="#f59e0b" stroke-dasharray="4 3"/>' : '') + '<circle cx="' + q.x + '" cy="' + q.y + '" r="' + (isT ? 8 : 5) + '" fill="' + (isT ? '#f59e0b' : '#10b981') + '"' + (q.k < 1 ? ' fill-opacity="0.4"' : '') + '/><text x="' + (q.x + 9) + '" y="' + (q.y + 4 + near * 11) + '" fill="#e2e8f0" font-size="10">' + esc(p.b.number) + '</text>';
   }).join('');
-  document.getElementById('radar-me').setAttribute('transform', 'translate(150,150) rotate(' + (st.heading || 0) + ')');
+  document.getElementById('radar-me').setAttribute('transform', 'translate(' + meP.x + ',' + meP.y + ') rotate(' + (st.heading || 0) + ')');
+  const zt = document.getElementById('radar-zoom');
+  if (zt) zt.textContent = 'Zoom ×' + (st.zoom < 10 ? st.zoom.toFixed(1) : Math.round(st.zoom)) + ' · anel externo = ' + fmtDist(maxD) + ' · centro: ' + (O === me ? 'você' : 'caixa ' + tgt.b.number);
   const hasH = st.heading !== null;
   let h = '<div>📍 Precisão do GPS: ±' + Math.round(me.acc) + ' m</div>';
   h += hasH ? '<div>🧭 Você está indo para <strong>' + compassName(st.heading) + ' (' + Math.round(st.heading) + '°)</strong> <small style="color:var(--slate-400);">— ' + st.headingSrc + '</small></div>' : '<div style="color:var(--slate-400);">🧭 Direção ainda desconhecida: ative a bússola ou ande alguns metros. A seta aponta em relação ao Norte (topo).</div>';
@@ -2554,6 +2640,25 @@ function bindBaitEvents() {
   $('btn-bait-view')?.addEventListener('click', () => { baitView = baitView === 'radar' ? 'list' : 'radar'; renderApp(); });
   $('radar-target')?.addEventListener('change', e => { baitState.target = e.target.value; updateRadar(true); });
   $('btn-compass')?.addEventListener('click', enableCompass);
+  document.querySelectorAll('.rz').forEach(b => b.addEventListener('click', () => {
+    const a = b.dataset.a, st = baitState;
+    if (a === 'in') st.zoom = Math.min(256, st.zoom * 2);
+    else if (a === 'out') st.zoom = Math.max(0.1, st.zoom / 2);
+    else if (a === 'fit') st.fit = true;
+    else if (a === 'center') { st.center = st.center === 'me' ? 'target' : 'me'; st.zoom = 1; b.textContent = 'Centro: ' + (st.center === 'me' ? 'eu' : 'caixa'); }
+    else if (a === 'full') { const el = document.getElementById('radar-map').parentElement; if (document.fullscreenElement) document.exitFullscreen(); else if (el.requestFullscreen) el.requestFullscreen(); }
+    updateRadar(true);
+  }));
+  const mapEl = $('radar-map');
+  if (mapEl) {
+    let pinch = null;
+    const td = t => Math.hypot(t[0].clientX - t[1].clientX, t[0].clientY - t[1].clientY);
+    mapEl.addEventListener('touchstart', e => { if (e.touches.length === 2) pinch = { d: td(e.touches), z: baitState.zoom }; }, { passive: true });
+    mapEl.addEventListener('touchmove', e => { if (pinch && e.touches.length === 2) { e.preventDefault(); baitState.zoom = Math.max(0.1, Math.min(256, pinch.z * td(e.touches) / pinch.d)); updateRadar(true); } }, { passive: false });
+    mapEl.addEventListener('touchend', () => { pinch = null; });
+    mapEl.addEventListener('wheel', e => { e.preventDefault(); baitState.zoom = Math.max(0.1, Math.min(256, baitState.zoom * (e.deltaY < 0 ? 1.25 : 0.8))); updateRadar(true); }, { passive: false });
+    document.onfullscreenchange = () => { const m = document.getElementById('radar-map'); if (m) m.style.maxWidth = document.fullscreenElement ? '100vmin' : '420px'; };
+  }
   if (baitView === 'radar') {
     startBaitWatch();
     if (baitState.compassOn && $('btn-compass')) $('btn-compass').textContent = '🧭 Bússola ativa';
@@ -2569,9 +2674,7 @@ function bindBaitEvents() {
   document.querySelectorAll('.bt-del').forEach(b => b.addEventListener('click', () => {
     if (confirm('Excluir este registro de caixa isca?')) { FinStore.del(BAIT_KEY, b.dataset.id); renderApp(); }
   }));
-  document.querySelectorAll('.bt-gps').forEach(b => b.addEventListener('click', () => {
-    gpsCapture((la, lo, ac) => { update(b.dataset.id, x => { x.lat = la; x.lon = lo; x.acc = Math.round(ac); }); renderApp(); }, t => { b.title = t; if (t.indexOf('⚠️') === 0) alert(t); });
-  }));
+  document.querySelectorAll('.bt-gps').forEach(b => b.addEventListener('click', () => openGpsUpdateModal(b.dataset.id)));
   document.querySelectorAll('.bt-col').forEach(b => b.addEventListener('click', () => {
     const bt = find(b.dataset.id);
     const data = ApisStorage.getAll();
@@ -4440,6 +4543,10 @@ function openHiveModal(data = ApisStorage.getAll(), existingHive = null, draft =
       </div>
       <div style="grid-column:1 / -1;">
         <label style="font-weight:600;">Outros equipamentos desta colmeia (cavalete, suporte de óleo, telha de cobertura...):</label>
+        <div style="display:flex; gap:0.4rem; flex-wrap:wrap; margin-top:0.4rem;">
+          <select id="hv-extra-sel" class="form-control" style="flex:1; min-width:200px;"></select>
+          <button type="button" class="btn btn-primary" id="btn-hv-extra-add">＋ Adicionar</button>
+        </div>
         <div id="hv-extra-rows" style="display:grid; grid-template-columns:repeat(auto-fit, minmax(220px, 1fr)); gap:0.5rem; margin-top:0.4rem;"></div>
         <div style="display:flex; gap:0.4rem; flex-wrap:wrap; margin-top:0.6rem; align-items:center;">
           <input type="text" id="hv-newcat-name" class="form-control" placeholder="Nova categoria (ex.: Cavalete com suporte de óleo)" style="flex:1; min-width:200px;">
@@ -4539,8 +4646,15 @@ function openHiveModal(data = ApisStorage.getAll(), existingHive = null, draft =
     block.querySelector('.hv-x-chips').innerHTML = pref.map(id => { const it = stock.find(x => x.id === id); return it ? '<span class="tag-badge" style="margin:0.1rem;">' + esc(it.number) + ' <a href="#" class="hv-x-del" data-id="' + id + '" style="color:var(--rose-500); text-decoration:none;">✕</a></span>' : ''; }).join('');
     block.querySelector('.hv-x-info').textContent = stock.length ? 'Estoque: ' + stock.length + ' no total · ' + stock.filter(x => !holderOf(x)).length + ' livre(s)' : 'Sem itens no estoque (vale o número digitado)';
   };
+  const extraSel = document.getElementById('hv-extra-sel');
+  const refreshExtraSel = () => {
+    const shown = Array.from(extraRowsEl.querySelectorAll('.hv-x-block')).filter(b => b.style.display !== 'none').map(b => b.querySelector('.hv-x-input').dataset.cat);
+    const opts = eqCats().filter(c => roleNames.indexOf(c) === -1 && eqInHive(c) && shown.indexOf(c) === -1);
+    extraSel.innerHTML = opts.length ? opts.map(c => '<option value="' + esc(c) + '">' + esc(c) + '</option>').join('') : '<option value="">Todas as categorias já foram adicionadas</option>';
+  };
   const addExtraRow = cat => {
-    if (Array.from(extraRowsEl.querySelectorAll('.hv-x-input')).some(i => i.dataset.cat === cat)) return;
+    const exist = Array.from(extraRowsEl.querySelectorAll('.hv-x-block')).find(b => b.querySelector('.hv-x-input').dataset.cat === cat);
+    if (exist) { exist.style.display = ''; refreshExtraSel(); return; }
     const stock = FinStore.get('apisapp_equip');
     const tracked = stock.some(x => x.cat === cat);
     const attached = isEdit ? stock.filter(x => x.cat === cat && x.hiveId === h.id).length : 0;
@@ -4548,11 +4662,12 @@ function openHiveModal(data = ApisStorage.getAll(), existingHive = null, draft =
     initEq[cat] = val;
     extraRowsEl.insertAdjacentHTML('beforeend', '<div class="form-group hv-x-block" style="margin:0; grid-column:1 / -1;"><label>' + esc(cat) + ':</label>' +
       '<div style="display:flex; gap:0.4rem; flex-wrap:wrap;"><input type="number" class="form-control hv-x-input" data-cat="' + esc(cat) + '" min="0" max="50" value="' + val + '" style="width:90px;" title="Quantidade">' +
-      (stock.some(x => x.cat === cat && x.number) ? '<select class="form-control hv-x-pick" style="flex:1; min-width:200px;"></select>' : '') + '</div>' +
+      (stock.some(x => x.cat === cat && x.number) ? '<select class="form-control hv-x-pick" style="flex:1; min-width:200px;"></select>' : '') + '<button type="button" class="btn btn-danger hv-x-rm" title="Remover da colmeia">✕</button></div>' +
       '<div class="hv-x-chips"></div><small class="hv-x-info" style="color:var(--slate-400);"></small></div>');
     const block = extraRowsEl.lastElementChild;
     const input = block.querySelector('.hv-x-input');
     input.addEventListener('input', refreshEqHints);
+    block.querySelector('.hv-x-rm').addEventListener('click', () => { input.value = 0; preferred[cat] = []; renderPick(cat, block); block.style.display = 'none'; refreshExtraSel(); refreshEqHints(); });
     const pick = block.querySelector('.hv-x-pick');
     if (pick) pick.addEventListener('change', () => {
       if (!pick.value) return;
@@ -4571,8 +4686,15 @@ function openHiveModal(data = ApisStorage.getAll(), existingHive = null, draft =
       refreshEqHints();
     });
     renderPick(cat, block);
+    refreshExtraSel();
   };
-  eqCats().filter(c => roleNames.indexOf(c) === -1 && eqInHive(c)).forEach(addExtraRow);
+  eqCats().filter(c => roleNames.indexOf(c) === -1 && eqInHive(c)).forEach(c => {
+    const st0 = FinStore.get('apisapp_equip');
+    const v0 = st0.some(x => x.cat === c) ? (isEdit ? st0.filter(x => x.cat === c && x.hiveId === h.id).length : 0) : ((h.extras && h.extras[c]) || 0);
+    if (v0 > 0) addExtraRow(c);
+  });
+  refreshExtraSel();
+  document.getElementById('btn-hv-extra-add').addEventListener('click', () => { if (extraSel.value) { addExtraRow(extraSel.value); refreshEqHints(); } });
   const collectExtras = () => {
     const out = {};
     const stock = FinStore.get('apisapp_equip');
